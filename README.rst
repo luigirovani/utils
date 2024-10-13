@@ -38,7 +38,7 @@ You can read a text file and get its content as a string or split it into lines.
 
 .. code-block:: python
 
-    from file_utils import read
+    from utils import read
 
     # Read the entire file as a single string
     content = read('example.txt')
@@ -59,7 +59,7 @@ Write content to a file as plain text or binary data.
 
 .. code-block:: python
 
-    from file_utils import write
+    from utils import write
 
     # Write a string to a file
     write('output.txt', 'This is a test file.')
@@ -78,7 +78,7 @@ You can read CSV data into a list of rows, optionally stripping whitespace from 
 
 .. code-block:: python
 
-    from file_utils import read_csv
+    from utils import read_csv
 
     # Read the CSV file as a list of rows (list of lists)
     rows = read_csv('data.csv')
@@ -95,7 +95,7 @@ Write structured data to a CSV file, with optional column headers.
 
 .. code-block:: python
 
-    from file_utils import write_csv
+    from utils import write_csv
 
     # Data to write (each inner list represents a row)
     data = [
@@ -121,7 +121,7 @@ Use the ``join_paths`` function to safely join multiple paths into a single path
 
 .. code-block:: python
 
-    from file_utils import join_paths
+    from utils import join_paths
 
     # Join multiple path segments into a single path
     safe_path = join_paths('/base/dir', 'subdir', 'file.txt')
