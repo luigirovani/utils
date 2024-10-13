@@ -1,10 +1,15 @@
-This project provides functions commonly  used by me in python projects
+General Utility Module
+======================
 
-# File Operations Utility
+This project provides general-purpose utility functions commonly used across different Python projects. Currently, it includes utilities for file operations, such as reading, writing, and handling CSV files, as well as secure path joining.
+
+File Operations
+---------------
 
 This module provides utility functions for reading, writing, and manipulating file paths. It includes methods for handling plain text files, CSV files, and joining paths while ensuring security.
 
-## Features
+Features
+--------
 
 - **Read Files**: Read the content of a file (text or binary) with options to split lines or ignore errors.
 - **Write Files**: Write content (text or binary) to a file.
@@ -12,16 +17,16 @@ This module provides utility functions for reading, writing, and manipulating fi
 - **Write CSV Files**: Write structured data to a CSV file with optional headers.
 - **Join Paths**: Safely join multiple paths while ensuring the resulting path stays within a safe directory.
 
-## Installation
+Installation
+------------
 
 To use this utility, simply clone the repository and install the necessary dependencies:
 
-```bash
-git clone https://github.com/luigirovani/utils
-```
+.. code-block:: bash
+
+    git clone https://github.com/luigirovani/utils
 
 No external dependencies are required beyond the Python standard library.
-
 
 Usage
 -----
@@ -138,8 +143,3 @@ License
 -------
 
 This project is licensed under the MIT License.
-
-
-
-
-
