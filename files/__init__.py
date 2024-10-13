@@ -2,10 +2,9 @@ from typing import Union, List, Optional, Tuple
 from collections.abc import Iterable
 from pathlib import Path
 import csv
-import os 
 
 __all__ = ['read', 'write', 'read_csv', 'write_csv', 'join_paths']
-'easier to ask forgiveness than permission (EAFP)'
+'this code handle errors in pattern easier to ask forgiveness than permission (EAFP)'
 
 
 class UnsafePathException(Exception):
@@ -20,7 +19,23 @@ def read(
     binary: bool = False,
     **kwargs
 ) -> Union[str, bytes, List[str]]:
-    
+    """
+    Reads content from a file.
+
+    Args:
+        path (Union[str, Path]): The file path to read from.
+        encoding (str, optional): Encoding to use for reading text files. Defaults to 'utf-8'.
+        split (bool, optional): If True, splits the file content into a list of lines. Defaults to False.
+        ignore_errors (bool, optional): If True, returns an empty string or list when an error occurs. Defaults to True.
+        binary (bool, optional): If True, reads the file in binary mode. Defaults to False.
+        **kwargs: Additional arguments passed to the `open` function.
+
+    Returns:
+        Union[str, bytes, List[str]]: The file content as a string, bytes, or list of lines depending on the parameters.
+
+    Raises:
+        Exception: Raises an exception if `ignore_errors` is set to False and an error occurs.
+    """
     try:
         if binary:
             return _read_bin(path, **kwargs)
@@ -39,7 +54,23 @@ def write(
     binary: bool = False,
     **kwargs
 ) -> None:
+    """
+    Writes content to a file.
 
+    Args:
+        path (Union[str, Path]): The file path to write to.
+        content (Union[str, bytes, Iterable[str]]): The content to write to the file (text or binary).
+        encoding (str, optional): Encoding to use for writing text files. Defaults to 'utf-8'.
+        ignore_errors (bool, optional): If True, ignores errors during writing. Defaults to False.
+        binary (bool, optional): If True, writes the file in binary mode. Defaults to False.
+        **kwargs: Additional arguments passed to the `open` function.
+
+    Returns:
+        None
+
+    Raises:
+        Exception: Raises an exception if `ignore_errors` is set to False and an error occurs.
+    """
     try:
         if binary:
             return _write_bin(path, content, **kwargs)
@@ -57,12 +88,29 @@ def read_csv(
     newline: str ='',
     drop: bool = False,
     **kwargs
-) -> List[Optional[Union[List[str],Tuple[str]]]]:
+) -> List[Optional[Union[List[str], Tuple[str]]]]:
+    """
+    Reads a CSV file and returns the rows.
 
+    Args:
+        path (Union[str, Path]): The file path to the CSV file.
+        delimiter (str, optional): The character used to separate fields. Defaults to ','.
+        encoding (str, optional): Encoding to use for reading the CSV file. Defaults to 'utf-8'.
+        ignore_errors (bool, optional): If True, ignores errors during reading. Defaults to False.
+        newline (str, optional): Specifies how newline characters should be handled. Defaults to ''.
+        drop (bool, optional): If True, strips whitespace from each field. Defaults to False.
+        **kwargs: Additional arguments passed to the `csv.reader` function.
+
+    Returns:
+        List[Optional[Union[List[str], Tuple[str]]]]: A list of rows, where each row is a list or tuple of strings.
+
+    Raises:
+        Exception: Raises an exception if `ignore_errors` is set to False and an error occurs.
+    """
     try:
         rows = _read_csv(path, newline, encoding, delimiter, **kwargs)
         if drop:
-            return [tuple(map(lambda c: c.strip()), row) for row in rows]
+            return [tuple(map(lambda c: c.strip(), row)) for row in rows]
         return rows
     except Exception as e:
         if not ignore_errors:
@@ -78,7 +126,21 @@ def write_csv(
     header: Optional[Iterable[str]] = None,
     **kwargs
 ) -> None:
+    """
+    Writes data to a CSV file.
 
+    Args:
+        path (Union[str, Path]): The file path to write to.
+        data (Iterable[Iterable[str]]): Data to write, where each item is a row of strings.
+        delimiter (str, optional): The character used to separate fields. Defaults to ','.
+        encoding (str, optional): Encoding to use for writing the CSV file. Defaults to 'utf-8'.
+        newline (str, optional): Specifies how newline characters should be handled. Defaults to ''.
+        header (Optional[Iterable[str]], optional): A list of column headers to write before the data. Defaults to None.
+        **kwargs: Additional arguments passed to the `csv.writer` function.
+
+    Returns:
+        None
+    """
     with open(path, mode='w', encoding=encoding, newline=newline, **kwargs) as f:
         writer = csv.writer(f, delimiter=delimiter)
         if header:
@@ -87,6 +149,19 @@ def write_csv(
 
 
 def join_paths(*paths: Union[str, Path]) -> Path:
+    """
+    Joins multiple paths into a single path and ensures it's within a safe directory.
+
+    Args:
+        *paths (Union[str, Path]): The paths to join together.
+
+    Returns:
+        Path: The joined path as a `Path` object.
+
+    Raises:
+        ValueError: If no paths are provided.
+        UnsafePathException: If the resulting path is outside the base directory (considered unsafe).
+    """
     if len(paths) < 1:
         raise ValueError("At least one path must be provided.")
 
