@@ -4,13 +4,12 @@ from pathlib import Path
 import csv
 
 __all__ = ['read', 'write', 'read_csv', 'write_csv', 'join_paths']
-'this code handle errors in pattern easier to ask forgiveness than permission (EAFP)'
 
 
 class UnsafePathException(Exception):
     """Exception raised for unsafe paths."""
     pass
-
+ 
 def read(
     path: Union[str, Path],
     encoding: str = 'utf-8',
@@ -39,7 +38,7 @@ def read(
     try:
         if binary:
             return _read_bin(path, **kwargs)
-        return _read_text(path, encoding=encoding, **kwargs)
+        return _read_text(path, encoding, split, **kwargs)
 
     except Exception as e:
         if ignore_errors and not binary:
@@ -110,8 +109,8 @@ def read_csv(
     try:
         rows = _read_csv(path, newline, encoding, delimiter, **kwargs)
         if drop:
-            return [tuple(map(lambda c: c.strip(), row)) for row in rows]
-        return rows
+            rows = set(tuple(map(lambda c: c.strip(), row)) for row in rows)
+        return list(rows)
     except Exception as e:
         if not ignore_errors:
             raise e
@@ -148,20 +147,39 @@ def write_csv(
         writer.writerows(data)
 
 
-def join_paths(*paths: Union[str, Path]) -> Path:
+def join_paths(
+    *paths: Union[str, Path], 
+    check: bool = False, 
+    mkdir: bool = False,
+    eafp: bool = False
+) -> Path:
     """
-    Joins multiple paths into a single path and ensures it's within a safe directory.
+    Joins multiple paths into a single absolute path 
 
     Args:
-        *paths (Union[str, Path]): The paths to join together.
+        *paths (Union[str, Path]): One or more paths to join together. The first path 
+            is considered the "base directory," and the resulting path must remain within 
+            this directory for security reasons.
+        check (bool, optional): If `True`, the function checks if the resolved path exists, 
+            raising a `FileNotFoundError` if it does not. Defaults to `False`.
+        mkdir (bool, optional): If `True`, the function creates the parent directories 
+            of the resolved path if they do not exist, using `Path.mkdir()`.
+        EAFP (bool, optional): easier to ask forgiveness than permission
 
     Returns:
-        Path: The joined path as a `Path` object.
+        Path: The fully joined and resolved path as a `Path` object.
 
     Raises:
         ValueError: If no paths are provided.
-        UnsafePathException: If the resulting path is outside the base directory (considered unsafe).
+        UnsafePathException: If the resulting path is outside the base directory.
+        FileNotFoundError: If `check` is `True` and the path does not exist.
+
+    Note:
+        This function ensures that the final path is within the base directory for security 
+        reasons. This can help prevent issues like directory traversal attacks when handling 
+        file paths dynamically.
     """
+
     if len(paths) < 1:
         raise ValueError("At least one path must be provided.")
 
@@ -176,6 +194,12 @@ def join_paths(*paths: Union[str, Path]) -> Path:
 
     if not resolved_path.is_relative_to(base_dir):
         raise UnsafePathException(f"The path {resolved_path} is outside the safe directory {base_dir}.")
+
+    if check and not resolved_path.exists():
+        raise FileNotFoundError(f"The path {resolved_path} does not exist")
+
+    elif mkdir and (not eafp or resolved_path.parent.exists()):
+        resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
     return resolved_path
 
@@ -202,6 +226,6 @@ def _read_text(path, encoding, split, **kwargs) -> Union[str, List[str]]:
             return list(text.splitlines())
         return text
 
-def _read_csv(path, newline, encoding, delimiter, **kwargs) -> List[str]:
+def _read_csv(path, newline, encoding, delimiter, **kwargs) -> Iterable[str]:
     with open(path, mode='r', newline=newline, encoding=encoding, **kwargs) as f:
-        return list(csv.reader(f, delimiter=delimiter))
+        return csv.reader(f, delimiter=delimiter)
