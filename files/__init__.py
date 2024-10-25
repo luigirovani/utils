@@ -14,6 +14,7 @@ def read(
     path: Union[str, Path],
     encoding: str = 'utf-8',
     split: bool = False,
+    drop_empty: bool = True,
     ignore_errors: bool = True,
     binary: bool = False,
     **kwargs
@@ -38,7 +39,14 @@ def read(
     try:
         if binary:
             return _read_bin(path, **kwargs)
-        return _read_text(path, encoding, split, **kwargs)
+        text = _read_text(path, encoding, **kwargs)
+
+        if split:
+            if drop_empty:
+                return [line.strip() for line in text.splitlines() if line.replace('\n', '')]
+            return text.splitlines()
+
+        return text
 
     except Exception as e:
         if ignore_errors and not binary:
@@ -219,12 +227,9 @@ def _write_text(path, encoding, content: str, **kwargs) -> None:
         else:
             f.write(content)
 
-def _read_text(path, encoding, split, **kwargs) -> Union[str, List[str]]:
+def _read_text(path, encoding, **kwargs) -> Union[str, List[str]]:
     with open(path, encoding=encoding, **kwargs) as f:
-        text = f.read()
-        if split:
-            return list(text.splitlines())
-        return text
+        return f.read()
 
 def _read_csv(path, newline, encoding, delimiter, **kwargs) -> Iterable[str]:
     with open(path, mode='r', newline=newline, encoding=encoding, **kwargs) as f:
