@@ -1,5 +1,5 @@
 import logging
-from miscellaneous import os_is_linux
+from ..miscellaneous import os_is_linux
 from logging.handlers import BaseRotatingHandler, TimedRotatingFileHandler
 from logging import FileHandler, StreamHandler
 from colorlog import ColoredFormatter
