@@ -1,12 +1,13 @@
+import sys
 import logging
-from ..miscellaneous import os_is_linux
 from logging.handlers import BaseRotatingHandler, TimedRotatingFileHandler
 from logging import FileHandler, StreamHandler
+from pathlib import Path
+from typing import Union
+
 from colorlog import ColoredFormatter
 
-import colorlog
-from pathlib import Path
-from typing import List, Optional, Union
+from ..miscellaneous import os_is_linux
 
 try:
     from concurrent_log_handler import ConcurrentTimedRotatingFileHandler 
@@ -24,7 +25,8 @@ def create_dir(path: Union[str, Path], unix_logs: bool = True) -> str:
     path_file = Path(path) if isinstance(path, str) else path
     
     if unix_logs and os_is_linux():
-        path_file = Path("/var/log") / path_file
+        dir_app = Path(sys.argv[0]).resolve().parent
+        path_file = Path("/var/log") / dir_app.name / path_file
     
     path_file.parent.mkdir(parents=True, exist_ok=True)
     
