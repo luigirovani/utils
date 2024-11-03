@@ -5,10 +5,11 @@ from logging import FileHandler, StreamHandler
 from pathlib import Path
 from typing import Union
 
+import colorlog
 from colorlog import ColoredFormatter
 
 from ..miscellaneous import os_is_linux
-from.consts import colorful, normal
+from.consts import colorful, normal, COLOUR_LOG_PATTERN
 
 try:
     from concurrent_log_handler import ConcurrentTimedRotatingFileHandler 
@@ -35,11 +36,14 @@ def get_colour_stdout_handler(
     fmt: str = colorful.LEVEL_TIME_MSG, 
     level: int = logging.INFO,
     datefmt: str = DATEFTM,
+    reset: bool = True,
+    log_colors: dict = COLOUR_LOG_PATTERN,
+    **keyargs
 ) -> StreamHandler:
 
-    stdout_handler = StreamHandler()
+    stdout_handler = colorlog.StreamHandler()
     stdout_handler.setLevel(level)  
-    stdout_formater = ColoredFormatter(fmt, datefmt)
+    stdout_formater = ColoredFormatter(fmt, datefmt, reset=reset, log_colors=log_colors, **keyargs)
     stdout_handler.setFormatter(stdout_formater)
     return stdout_handler
 
@@ -104,6 +108,8 @@ def get_colour_rotative_handler(
     backupCount: int = 14,
     fmt: str = colorful.NAME_LEVEL_TIME_MSG,
     datefmt: str = DATEFTM,
+    reset: bool = True,
+    log_colors: dict = COLOUR_LOG_PATTERN,
     **keyargs
     ) -> BaseRotatingHandler:
 
@@ -117,6 +123,6 @@ def get_colour_rotative_handler(
         **keyargs
     )
     handler.setLevel(level)
-    formater = ColoredFormatter(fmt, datefmt)
+    formater = ColoredFormatter(fmt, datefmt, reset=reset, log_colors=log_colors)
     handler.setFormatter(formater)
     return handler

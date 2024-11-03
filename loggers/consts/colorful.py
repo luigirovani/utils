@@ -1,6 +1,6 @@
 from .colour_dict import COLOURS
 
-MSG = '%(log_color)s%(message)s%(reset)s'
+MSG = '%(log_color)s%(message)s'
 
 NAME_MSG = f'{COLOURS["S"]}%(name)s %(reset)s: %(log_color)s%(message)s'
 NAME_LEVEL_MSG = f'{COLOURS["S"]}%(name)s %(log_color)s%(levelname)s %(reset)s: %(message)s'

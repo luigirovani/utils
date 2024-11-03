@@ -41,7 +41,14 @@ LOG_COLOURS = {
     10: COLOURS['B'],            
     0:  COLOURS['C']            
 }
-      
+
+COLOUR_LOG_PATTERN={
+	'DEBUG':    'cyan',
+	'INFO':     'green',
+	'WARNING':  'yellow',
+	'ERROR':    'red',
+	'CRITICAL': 'red,bg_white',
+},     
 
 
 
