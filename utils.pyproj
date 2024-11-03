@@ -25,7 +25,11 @@
     <Compile Include="files\__init__.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="loggers\colourprinter.py" />
+    <Compile Include="loggers\colour_log.py" />
+    <Compile Include="loggers\convert.py" />
     <Compile Include="loggers\handles.py" />
+    <Compile Include="loggers\loggers.py" />
     <Compile Include="miscellaneous\__init__.py" />
     <Compile Include="telegram\sessions.py" />
     <Compile Include="telegram\__init__.py" />
@@ -39,6 +43,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="README.rst" />
+    <Content Include="requirements.txt" />
   </ItemGroup>
   <ItemGroup>
     <Interpreter Include="env\">

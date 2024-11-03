@@ -1,0 +1,7 @@
+colorama==0.4.6
+colorlog==6.8.2
+concurrent-log-handler==0.9.25
+pip==24.0
+portalocker==2.10.1
+pytz==2024.2
+pywin32==308
