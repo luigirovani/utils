@@ -43,7 +43,7 @@ def read(
 
         if split:
             if drop_empty:
-                return [line.strip() for line in text.splitlines() if line.replace('\n', '')]
+                return [line.strip() for line in text.splitlines() if line.strip()]
             return text.splitlines()
 
         return text
