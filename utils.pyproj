@@ -27,7 +27,11 @@
     </Compile>
     <Compile Include="loggers\colourprinter.py" />
     <Compile Include="loggers\colour_log.py" />
+    <Compile Include="loggers\consts\colour_dict.py" />
+    <Compile Include="loggers\consts\normal.py" />
+    <Compile Include="loggers\consts\__init__.py" />
     <Compile Include="loggers\convert.py" />
+    <Compile Include="loggers\consts\colorful.py" />
     <Compile Include="loggers\handles.py" />
     <Compile Include="loggers\loggers.py" />
     <Compile Include="miscellaneous\__init__.py" />
@@ -37,6 +41,7 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include="files\" />
+    <Folder Include="loggers\consts\" />
     <Folder Include="miscellaneous\" />
     <Folder Include="loggers\" />
     <Folder Include="telegram\" />
