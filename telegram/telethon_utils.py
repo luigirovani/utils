@@ -24,6 +24,25 @@ def parse_phone(phone: Union[str, int]) -> Optional[str]:
         if phone.isdigit():
             return phone
 
+def clean_phone(phone: Union[str, int]):
+    """
+    Removes characters that match the VALID_PHONE pattern and 
+    returns only the characters that don't match.
+
+    Args:
+        text (str): The string to process.
+
+    Returns:
+        str: The filtered string.
+    """
+    if isinstance(phone, int):
+        return str(phone)
+
+    if phone.isdigit():
+        return phone
+
+    return ''.join(char for char in phone if not VALID_PHONE.match(char))
+
 def is_list_like(obj):
     """
     Returns `True` if the given object looks like a list.

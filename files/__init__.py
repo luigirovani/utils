@@ -15,7 +15,7 @@ def read(
     encoding: str = 'utf-8',
     split: bool = False,
     drop_empty: bool = True,
-    ignore_errors: bool = True,
+    ignore_errors: bool = False,
     binary: bool = False,
     **kwargs
 ) -> Union[str, bytes, List[str]]:
@@ -37,16 +37,19 @@ def read(
         Exception: Raises an exception if `ignore_errors` is set to False and an error occurs.
     """
     try:
+
         if binary:
             return _read_bin(path, **kwargs)
+
         text = _read_text(path, encoding, **kwargs)
 
-        if split:
-            if drop_empty:
-                return [line.strip() for line in text.splitlines() if line.strip()]
-            return text.splitlines()
+        if not split:
+            return text
 
-        return text
+        if drop_empty:
+            return [line.strip() for line in text.splitlines() if line.strip()]
+        
+        return text.splitlines()
 
     except Exception as e:
         if ignore_errors and not binary:
@@ -94,6 +97,7 @@ def read_csv(
     ignore_errors: bool = False,
     newline: str ='',
     drop: bool = False,
+    skip_header: bool = False,
     **kwargs
 ) -> List[Optional[Union[List[str], Tuple[str]]]]:
     """
@@ -106,6 +110,7 @@ def read_csv(
         ignore_errors (bool, optional): If True, ignores errors during reading. Defaults to False.
         newline (str, optional): Specifies how newline characters should be handled. Defaults to ''.
         drop (bool, optional): If True, strips whitespace from each field. Defaults to False.
+        skip_header (bool, optional): If True, skips the header row of the CSV file. Defaults to False.
         **kwargs: Additional arguments passed to the `csv.reader` function.
 
     Returns:
@@ -116,9 +121,15 @@ def read_csv(
     """
     try:
         rows = _read_csv(path, newline, encoding, delimiter, **kwargs)
+
+        if skip_header:
+            next(rows)
+
         if drop:
             rows = set(tuple(map(lambda c: c.strip(), row)) for row in rows)
+
         return list(rows)
+
     except Exception as e:
         if not ignore_errors:
             raise e

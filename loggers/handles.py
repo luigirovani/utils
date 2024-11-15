@@ -1,21 +1,23 @@
 import sys
 import logging
-from logging.handlers import BaseRotatingHandler, TimedRotatingFileHandler
+from logging.handlers import BaseRotatingHandler, TimedRotatingFileHandler, RotatingFileHandler
 from logging import FileHandler, StreamHandler
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional, Dict
 
 import colorlog
 from colorlog import ColoredFormatter
 
 from ..miscellaneous import os_is_linux
 from.consts import colorful, normal, COLOUR_LOG_PATTERN
+from.convert import convert_level
 
 try:
-    from concurrent_log_handler import ConcurrentTimedRotatingFileHandler 
+    from concurrent_log_handler import ConcurrentTimedRotatingFileHandler
+    from concurrent_log_handler import ConcurrentRotatingFileHandler
 except ImportError:
     ConcurrentTimedRotatingFileHandler = TimedRotatingFileHandler
-
+    ConcurrentRotatingFileHandler = ConcurrentRotatingFileHandler
 
 DATEFTM = "%d-%m-%Y %H:%M:%S"
 
@@ -32,52 +34,53 @@ def create_dir(path: Union[str, Path], unix_logs: bool = True) -> str:
     return str(path_file.absolute())
 
 
-def get_colour_stdout_handler(
+def getColourStreamHandler(
     fmt: str = colorful.LEVEL_TIME_MSG, 
-    level: int = logging.INFO,
+    level: Union[int, str] = logging.INFO,
     datefmt: str = DATEFTM,
     reset: bool = True,
     log_colors: dict = COLOUR_LOG_PATTERN,
     **keyargs
 ) -> StreamHandler:
 
-    stdout_handler = colorlog.StreamHandler()
-    stdout_handler.setLevel(level)  
-    stdout_formater = ColoredFormatter(fmt, datefmt, reset=reset, log_colors=log_colors, **keyargs)
-    stdout_handler.setFormatter(stdout_formater)
-    return stdout_handler
+    handler = colorlog.StreamHandler()
+    handler.setLevel(convert_level(level))
+    formater = ColoredFormatter(fmt, datefmt, reset=reset, log_colors=log_colors, **keyargs)
+    handler.setFormatter(formater)
+    return handler
 
-def get_stdout_handler(
+def getStreamHandler(
     fmt: str = normal.LEVEL_TIME_MSG, 
-    level: int = logging.INFO,
-    datefmt: str = DATEFTM
+    level: Union[int, str] = logging.INFO,
+    datefmt: str = DATEFTM,
+    **keyargs
 ) -> StreamHandler:
 
-    stdout_handler = StreamHandler()
-    stdout_handler.setLevel(level)  
-    stdout_formater = logging.Formatter(fmt, datefmt)
-    stdout_handler.setFormatter(stdout_formater)
-    return stdout_handler
+    handler = StreamHandler()
+    handler.setLevel(convert_level(level))
+    formater = logging.Formatter(fmt, datefmt, **keyargs)
+    handler.setFormatter(formater)
+    return handler
 
-def get_file_handler(
+def getFileHandler(
     file: Union[Path, str] = 'logs.log', 
-    level: int = logging.INFO, 
+    level: Union[int, str] = logging.INFO,
     fmt: str = normal.NAME_LEVEL_TIME_MSG,
     datefmt: str = DATEFTM,
     mode: str ='a',
     **keyargs
     ) -> FileHandler: 
 
-    file_handler = FileHandler(file, encoding='utf-8', mode=mode, **keyargs)
-    file_handler.setLevel(level)
+    handler = FileHandler(file, encoding='utf-8', mode=mode, **keyargs)
+    handler.setLevel(convert_level(level))
     formater = logging.Formatter(fmt, datefmt)
-    file_handler.setFormatter(formater)
-    return file_handler
+    handler.setFormatter(formater)
+    return handler
 
 
-def get_rotative_handler(
+def getTimedRotativeHandler(
     file: Union[Path, str], 
-    level: int = logging.INFO, 
+    level: Union[int, str] = logging.INFO,
     multiprocess: bool = False,
     when: str ='midnight', 
     backupCount: int = 14,
@@ -95,26 +98,26 @@ def get_rotative_handler(
         encoding='utf-8', 
         **keyargs
     )
-    handler.setLevel(level)
+    handler.setLevel(convert_level(level))
     formater = logging.Formatter(fmt, datefmt)
     handler.setFormatter(formater)
     return handler
 
-def get_colour_rotative_handler(
+
+def getColourTimedRotativeHandler(
     file: Union[Path, str], 
-    level: int = logging.INFO, 
+    level: Union[int, str] = logging.INFO,
     multiprocess: bool = False,
     when: str ='midnight', 
     backupCount: int = 14,
     fmt: str = colorful.NAME_LEVEL_TIME_MSG,
     datefmt: str = DATEFTM,
     reset: bool = True,
-    log_colors: dict = COLOUR_LOG_PATTERN,
+    log_colours: dict = COLOUR_LOG_PATTERN,
     **keyargs
     ) -> BaseRotatingHandler:
 
     Handler = ConcurrentTimedRotatingFileHandler if multiprocess else TimedRotatingFileHandler
-
     handler = Handler(
         create_dir(file), 
         when=when, 
@@ -122,7 +125,33 @@ def get_colour_rotative_handler(
         encoding='utf-8', 
         **keyargs
     )
-    handler.setLevel(level)
-    formater = ColoredFormatter(fmt, datefmt, reset=reset, log_colors=log_colors)
+    handler.setLevel(convert_level(level))
+    formater = ColoredFormatter(fmt, datefmt, reset=reset, log_colors=log_colours)
     handler.setFormatter(formater)
     return handler
+
+def getRotativeHandler(
+    file: Union[Path, str], 
+    level: Union[int, str] = logging.INFO,
+    multiprocess: bool = False,
+    maxBytes: int = 1024 * 1024 * 1024, 
+    backupCount: int = 14,
+    fmt: str = normal.NAME_LEVEL_TIME_MSG,
+    datefmt: str = DATEFTM,
+    **keyargs
+    ) -> BaseRotatingHandler:
+
+    Handler = ConcurrentTimedRotatingFileHandler if multiprocess else RotatingFileHandler
+
+    handler = Handler(
+        create_dir(file), 
+        maxBytes=maxBytes, 
+        backupCount=backupCount, 
+        encoding='utf-8', 
+        **keyargs
+    )
+    handler.setLevel(convert_level(level))
+    formater = logging.Formatter(fmt, datefmt)
+    handler.setFormatter(formater)
+    return handler
+
