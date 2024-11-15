@@ -123,7 +123,7 @@ def read_csv(
         rows = _read_csv(path, newline, encoding, delimiter, **kwargs)
 
         if skip_header:
-            rows.pop(0)
+            next(rows)
 
         if drop:
             rows = set(tuple(map(lambda c: c.strip(), row)) for row in rows)
@@ -242,6 +242,6 @@ def _read_text(path, encoding, **kwargs) -> Union[str, List[str]]:
     with open(path, encoding=encoding, **kwargs) as f:
         return f.read()
 
-def _read_csv(path, newline, encoding, delimiter, **kwargs) -> List[List[str]]:
+def _read_csv(path, newline, encoding, delimiter, **kwargs) -> Iterable[str]:
     with open(path, mode='r', newline=newline, encoding=encoding, **kwargs) as f:
-        return list(csv.reader(f, delimiter=delimiter))
+        return csv.reader(f, delimiter=delimiter)
