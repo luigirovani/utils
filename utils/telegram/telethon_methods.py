@@ -6,8 +6,6 @@ from typing import Callable, Any, Union, Tuple, List
 from logging import Logger, getLogger
 
 from telethon import TelegramClient, utils
-from telethon.tl.functions import channels, contacts, messages
-from telethon.tl.types import InputPhoneContact
 
 from.sessions import get_sessions_phones
 from.telethon_utils import is_list_like
@@ -15,9 +13,6 @@ from..files import read_csv
 from..miscellaneous import sleep
 
 _base_loger = getLogger('Telegram')
-
-
-
 
 async def run_client(
     session: Union[str, Path],
@@ -150,92 +145,6 @@ async def run_app(
         )))
 
     await asyncio.gather(*tasks)
-
-
-async def add_contact(client: TelegramClient, user):
-
-    try:
-        await client(contacts.ImportContactsRequest(
-            [InputPhoneContact(
-                random.randrange(-2**63, 2**63),
-                user.phone if user.phone else '',
-                user.first_name if user.first_name else '',
-                user.last_name if user.last_name else ''
-            )]
-        ))
-        client.logger.info(f'Sucess in add_contat')
-    except Exception as e:
-        client.logger.error(f'Error in add_contat: {e}')
-    finally:
-        await sleep()
-
-async def get_user(row, from_channel, client: TelegramClient):
-    """ return user entity or None """
-
-    try:
-        if len(row) > 2:
-            return await client.get_entity(str(row[2]))
-        else:
-            name = row[1]
-            user_id = int(row[0])
-            return list(
-                filter(
-                    lambda u: u.id == user_id,
-                    (await client.get_participants(from_channel, search=name)),
-                )
-            )[0]
-    except Exception as e:
-        client.logger.error(f'Error in get_user {e}')
-
-async def _join_channel(client: TelegramClient, channel: str) -> bool: 
-    try:
-        await client(channels.JoinChannelRequest(channel))
-         
-    except Exception as e:
-        client.logger.error(f'Error in join_channel {e}')
-        await client.get_dialogs()
-    
-    chat = (await client(channels.GetChannelsRequest([channel]))).chats[0]
-    result =  not chat.left and not chat.restricted
-    if result:
-        client.logger.info(f'Sucess join in {chat.id}')
-    return result
-
-async def join_chat(client: TelegramClient, chat: str) -> bool: 
-    try:
-        await client(messages.ImportChatInviteRequest(utils.parse_username(chat)[0]))
-    except Exception as e:
-        client.logger.error(f'Error in join_chat {e}')
-        await client.get_dialogs()
-    
-    entity = await client.get_entity(chat)
-    client.logger.info(f'Sucess join in {entity.id}')
-    return entity
-
-async def join_channel(client: TelegramClient, link: str) -> bool:
-    """Join channel. Returns whether client joined or not."""
-    try:
-        username, is_invite = utils.parse_username(link)
-
-        if is_invite:
-            return await join_chat(client, link)
-
-        else:
-            return await _join_channel(client, link)
-    except Exception as e:
-        client.logger.error(f'Error in join_channel {e}')
-        return False
-    
-def get_emoji(channel_full_info, fallback_emojis: List[str] = []):
-    try:
-        reactions = channel_full_info.full_chat.available_reactions.reactions
-        emojis = [react.emoticon for react in reactions if (not fallback_emojis or react.emoticon in fallback_emojis)]
-        if emojis:
-            return random.choice(emojis).strip()
-    except Exception as e:
-        if fallback_emojis:
-            return random.choice(fallback_emojis).strip()
-        raise e
 
 
 
