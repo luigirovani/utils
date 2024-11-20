@@ -1,6 +1,7 @@
 import re
 from typing import Union, Optional
 from types import GeneratorType
+from pathlib import Path
 
 USERNAME_RE = re.compile(
     r'@|(?:https?://)?(?:www\.)?(?:telegram\.(?:me|dog)|t\.me)/(@|\+|joinchat/)?'
@@ -24,7 +25,7 @@ def parse_phone(phone: Union[str, int]) -> Optional[str]:
         if phone.isdigit():
             return phone
 
-def clean_phone(phone: Union[str, int]):
+def clean_phone(phone: Union[str, int, Path]):
     """
     Removes characters that match the VALID_PHONE pattern and 
     returns only the characters that don't match.
@@ -38,7 +39,10 @@ def clean_phone(phone: Union[str, int]):
     if isinstance(phone, int):
         return str(phone)
 
-    if phone.isdigit():
+    if isinstance(phone, Path):
+        phone = phone.stem
+
+    elif phone.isdigit():
         return phone
 
     return ''.join(char for char in phone if not VALID_PHONE.match(char))

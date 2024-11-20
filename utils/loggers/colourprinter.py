@@ -17,8 +17,8 @@ class ColourPrinter:
     def print_stdout(self, msg:str, level:Union[int, str]=None, colour:str=None) -> None:
         print(self.get_colour(level, colour) + msg + self.colours['RESET'])
 
-    def __call__(self, msg:str, level:Union[int, str]=None, colour:str=None) -> None:
-        self.print_stdout(msg, level, colour)
+    def __call__(self, msg:str,  colour:str=None) -> str:
+        return self.get_colour(colour) + msg + self.colours['RESET']
 
 colourprinter = ColourPrinter()
 

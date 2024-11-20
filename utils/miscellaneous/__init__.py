@@ -11,7 +11,10 @@ DELAY = float (os.getenv('DELAY', 1))
 DELAY_FACTOR = int(os.getenv('DELAY_FACTOR', 10))
 
 async def sleep(delay: Union[float, int] = DELAY, factor: int = DELAY_FACTOR) -> None:
-    await asyncio.sleep(random.uniform(delay/factor, delay))
+    await asyncio.sleep(random.uniform(
+        delay/factor, 
+        delay*2 + (delay/factor*2) 
+    ))
 
 def os_is_windows() -> bool:
     return platform.system() == 'Windows'

@@ -36,6 +36,7 @@
     <Compile Include="loggers\handles.py" />
     <Compile Include="loggers\loggers.py" />
     <Compile Include="miscellaneous\__init__.py" />
+    <Compile Include="telegram\client.py" />
     <Compile Include="telegram\sessions.py" />
     <Compile Include="telegram\telethon_methods.py" />
     <Compile Include="telegram\telethon_utils.py" />

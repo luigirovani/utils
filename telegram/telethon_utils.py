@@ -1,6 +1,6 @@
 import re
 from typing import Union, Optional
-from types import GeneratorType
+from pathlib import Path
 
 USERNAME_RE = re.compile(
     r'@|(?:https?://)?(?:www\.)?(?:telegram\.(?:me|dog)|t\.me)/(@|\+|joinchat/)?'
@@ -24,7 +24,7 @@ def parse_phone(phone: Union[str, int]) -> Optional[str]:
         if phone.isdigit():
             return phone
 
-def clean_phone(phone: Union[str, int]):
+def clean_phone(phone: Union[str, int, Path]) -> str:
     """
     Removes characters that match the VALID_PHONE pattern and 
     returns only the characters that don't match.
@@ -38,21 +38,31 @@ def clean_phone(phone: Union[str, int]):
     if isinstance(phone, int):
         return str(phone)
 
-    if phone.isdigit():
-        return phone
+    if isinstance(phone, Path):
+        phone = phone.stem
 
-    return ''.join(char for char in phone if not VALID_PHONE.match(char))
+    return ''.join(char for char in phone if char.isdigit())
 
-def is_list_like(obj):
+def clean_session(session: Union[str, Path]) -> Path:
     """
-    Returns `True` if the given object looks like a list.
+    Cleans the session string or path to a session file and rename file if existis.
 
-    Checking ``if hasattr(obj, '__iter__')`` and ignoring ``str/bytes`` is not
-    enough. Things like ``open()`` are also iterable (and probably many
-    other things), so just support the commonly known list-like objects.
+    Args:
+        session (Union[str, Path]): The session string or path to the session file.
+
+    Returns:
+        Path: The cleaned session string.
     """
-    return isinstance(obj, (list, tuple, set, dict, GeneratorType))
+    path = Path(session)
+    new_path = path.with_name(clean_phone(path.stem) + '.session')
 
+    if path != new_path and path.exists():
+        try:
+            path.rename(new_path)
+        except:
+            return path
+
+    return new_path
 
 
 def parse_username(username):

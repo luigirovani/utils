@@ -123,7 +123,7 @@ def read_csv(
         rows = _read_csv(path, newline, encoding, delimiter, **kwargs)
 
         if skip_header:
-            next(rows)
+            rows.pop(0)
 
         if drop:
             rows = set(tuple(map(lambda c: c.strip(), row)) for row in rows)
@@ -226,7 +226,7 @@ def join_paths(
 def _read_bin(path, **kwargs) -> bytes:
     with open(path, mode='rb', **kwargs) as f:
         return f.read()
-
+    
 def _write_bin(path, content: bytes, **kwargs) -> None:
     with open(path, mode='wb', **kwargs) as f:
         return f.write(content)
@@ -242,6 +242,6 @@ def _read_text(path, encoding, **kwargs) -> Union[str, List[str]]:
     with open(path, encoding=encoding, **kwargs) as f:
         return f.read()
 
-def _read_csv(path, newline, encoding, delimiter, **kwargs) -> Iterable[str]:
+def _read_csv(path, newline, encoding, delimiter, **kwargs) -> List[List[str]]:
     with open(path, mode='r', newline=newline, encoding=encoding, **kwargs) as f:
-        return csv.reader(f, delimiter=delimiter)
+        return list(csv.reader(f, delimiter=delimiter))

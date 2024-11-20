@@ -5,18 +5,12 @@ import random
 from typing import Callable, Any, Union, Tuple, List
 from logging import Logger, getLogger
 
-from telethon import TelegramClient, utils
-from telethon.tl.functions import channels, contacts, messages
-from telethon.tl.types import InputPhoneContact
-
 from.sessions import get_sessions_phones
-from.telethon_utils import is_list_like
+from.client import Client, DELAY
+from..miscellaneous import sleep, is_list_like
 from..files import read_csv
-from..miscellaneous import sleep
 
 _base_loger = getLogger('Telegram')
-
-
 
 
 async def run_client(
@@ -24,9 +18,9 @@ async def run_client(
     phone: str,
     api_id: Union[str, int],
     api_hash: str,
-    callback: Callable[[TelegramClient], Any],
+    callback: Callable[[Client], Any],
     base_logger: Logger = _base_loger,
-    delay_connect: float = 0.25,
+    delay: float = DELAY,
     receive_updates: bool = False,
     **keyargs: Any
 ) -> None:
@@ -40,44 +34,24 @@ async def run_client(
         api_hash (str): The API hash for the Telegram client.
         callback (Callable[[TelegramClient], Any]): The function to execute with the client.
         base_logger (Any): The base logger for logging.
-        delay_connect (float): The delay in seconds before connecting.
+        delay (float): The delay in seconds before connecting.
         receive_updates (bool): Whether to receive updates in the session.
         **keyargs (Any): Additional arguments for the Telegram client.
 
     Returns:
         None
     """
-    client: TelegramClient | None = None
-    logger = base_logger.getChild(phone)
 
     try:
-        client = TelegramClient(session, api_id, api_hash, receive_updates=receive_updates, **keyargs)
-        await client.connect()
-        await sleep(delay_connect)
-        client.logger = logger
+        async with Client(session, api_id, api_hash, base_logger, delay, receive_updates=receive_updates, **keyargs) as client:
+            await client.run_callback(callback)
 
-        try:
-            me = await client.get_me()
-            if me:
-                logger.info(f'{utils.get_display_name(me)} connected successfully.')
-                try:
-                    await callback(client)
-                except KeyboardInterrupt as e:
-                    logger.debug('Terminating program! Please wait...')
-                    raise e
-                except Exception as e:
-                    logger.error(f'Error executing {callback.__name__}: {e}')
-            else:
-                logger.warning('Session is logged out or banned.')
-
-        finally:
-            try:
-                await client.disconnect()
-            except Exception as e:
-                logger.debug(f'Error during disconnect: {e}')
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        base_logger.critical(f'Shut Down app...')
+        raise 
 
     except Exception as e:
-        logger.error(f'Error connecting: {e}')
+        base_logger.error(f'Error connecting {phone} : {e}')
 
 def get_api(
     api: Union[Tuple[str, str], Tuple[int, str], Path, str]
@@ -109,11 +83,12 @@ async def run_task(task, sem, delay_task, *args, **keyargs):
 async def run_app(
     sessions_path,
     api: Union[Tuple[str, str], Tuple[int, str], Path, str],
-    callback: Callable[[TelegramClient], Any],
+    callback: Callable[[Client], Any],
     max_tasks: int = 12,
     delay_task: float = 1,
+    limit_sessions: int = None,
     base_logger: Logger = _base_loger,
-    delay_connect: float = 0.25,
+    delay: float = DELAY,
     receive_updates: bool = False,
     **keyargs
 ):
@@ -126,7 +101,7 @@ async def run_app(
         callback (Callable[[TelegramClient], Any]): The function to execute with the client.
         max_tasks (int): The maximum number of tasks to run concurrently.
         base_logger (Logger): The base logger for logging.
-        delay_connect (float): The delay in seconds before connecting.
+        delay (float): The delay in seconds before connecting.
         receive_updates (bool): Whether to receive updates in the session.
 
     Returns:
@@ -134,97 +109,27 @@ async def run_app(
     """
     apis = get_api(api)
     sessions = get_sessions_phones(sessions_path)
+    random.shuffle(sessions)
+    if limit_sessions:
+        sessions = sessions[:limit_sessions]
+
     sem = asyncio.Semaphore(max_tasks)
     tasks = []
 
     for phone, session in sessions:
-        api_id, api_hash = random.choice(apis)
+        api_choice = random.choice(apis)
 
         tasks.append(asyncio.create_task(run_task(
             run_client, sem, delay_task,
             session=session, phone=phone,
-            api_id=api_id, api_hash=api_hash, 
+            api_id=api_choice[0], api_hash=api_choice[1], 
             callback=callback, base_logger=base_logger,
-            delay_connect=delay_connect, 
+            delay=delay, 
             receive_updates=receive_updates, **keyargs
         )))
 
-    await asyncio.gather(*tasks)
+    await asyncio.gather(*tasks, return_exceptions=True)
 
-
-async def add_contact(client: TelegramClient, user):
-
-    try:
-        await client(contacts.ImportContactsRequest(
-            [InputPhoneContact(
-                random.randrange(-2**63, 2**63),
-                user.phone if user.phone else '',
-                user.first_name if user.first_name else '',
-                user.last_name if user.last_name else ''
-            )]
-        ))
-        client.logger.info(f'Sucess in add_contat')
-    except Exception as e:
-        client.logger.error(f'Error in add_contat: {e}')
-    finally:
-        await sleep()
-
-async def get_user(row, from_channel, client: TelegramClient):
-    """ return user entity or None """
-
-    try:
-        if len(row) > 2:
-            return await client.get_entity(str(row[2]))
-        else:
-            name = row[1]
-            user_id = int(row[0])
-            return list(
-                filter(
-                    lambda u: u.id == user_id,
-                    (await client.get_participants(from_channel, search=name)),
-                )
-            )[0]
-    except Exception as e:
-        client.logger.error(f'Error in get_user {e}')
-
-async def _join_channel(client: TelegramClient, channel: str) -> bool: 
-    try:
-        await client(channels.JoinChannelRequest(channel))
-         
-    except Exception as e:
-        client.logger.error(f'Error in join_channel {e}')
-        await client.get_dialogs()
-    
-    chat = (await client(channels.GetChannelsRequest([channel]))).chats[0]
-    result =  not chat.left and not chat.restricted
-    if result:
-        client.logger.info(f'Sucess join in {chat.id}')
-    return result
-
-async def join_chat(client: TelegramClient, chat: str) -> bool: 
-    try:
-        await client(messages.ImportChatInviteRequest(utils.parse_username(chat)[0]))
-    except Exception as e:
-        client.logger.error(f'Error in join_chat {e}')
-        await client.get_dialogs()
-    
-    entity = await client.get_entity(chat)
-    client.logger.info(f'Sucess join in {entity.id}')
-    return entity
-
-async def join_channel(client: TelegramClient, link: str) -> bool:
-    """Join channel. Returns whether client joined or not."""
-    try:
-        username, is_invite = utils.parse_username(link)
-
-        if is_invite:
-            return await join_chat(client, link)
-
-        else:
-            return await _join_channel(client, link)
-    except Exception as e:
-        client.logger.error(f'Error in join_channel {e}')
-        return False
     
 def get_emoji(channel_full_info, fallback_emojis: List[str] = []):
     try:

@@ -1,2 +1,2 @@
-from . import files
+from.files import *
 from . import telegram
