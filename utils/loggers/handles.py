@@ -9,7 +9,7 @@ import colorlog
 from colorlog import ColoredFormatter
 
 from ..miscellaneous import os_is_linux
-from.consts import colorful, normal, COLOUR_LOG_PATTERN
+from.consts import colorful, normal, COLOUR_LOG_PATTERN, DATEFTM, DATE_ROTATIVE
 from.convert import convert_level
 
 try:
@@ -17,9 +17,7 @@ try:
     from concurrent_log_handler import ConcurrentRotatingFileHandler
 except ImportError:
     ConcurrentTimedRotatingFileHandler = TimedRotatingFileHandler
-    ConcurrentRotatingFileHandler = ConcurrentRotatingFileHandler
-
-DATEFTM = "%d-%m-%Y %H:%M:%S"
+    ConcurrentRotatingFileHandler = RotatingFileHandler
 
 
 def create_dir(path: Union[str, Path], unix_logs: bool = True) -> str:
@@ -85,7 +83,7 @@ def getTimedRotativeHandler(
     when: str ='midnight', 
     backupCount: int = 14,
     fmt: str = normal.NAME_LEVEL_TIME_MSG,
-    datefmt: str = DATEFTM,
+    datefmt: str = DATE_ROTATIVE,
     **keyargs
     ) -> BaseRotatingHandler:
 
@@ -111,7 +109,7 @@ def getColourTimedRotativeHandler(
     when: str ='midnight', 
     backupCount: int = 14,
     fmt: str = colorful.NAME_LEVEL_TIME_MSG,
-    datefmt: str = DATEFTM,
+    datefmt: str = DATE_ROTATIVE,
     reset: bool = True,
     log_colours: dict = COLOUR_LOG_PATTERN,
     **keyargs
@@ -141,7 +139,7 @@ def getRotativeHandler(
     **keyargs
     ) -> BaseRotatingHandler:
 
-    Handler = ConcurrentTimedRotatingFileHandler if multiprocess else RotatingFileHandler
+    Handler = ConcurrentRotatingFileHandler if multiprocess else RotatingFileHandler
 
     handler = Handler(
         create_dir(file), 

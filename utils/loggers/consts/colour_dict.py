@@ -42,13 +42,32 @@ LOG_COLOURS = {
     0:  COLOURS['C']            
 }
 
+LOG_LEVELS = {
+    "NOTSET": 0,
+    "DEBUG": 10,
+    "INFO": 20,
+    "WARNING": 30,
+    "WARN": 30, 
+    "ERROR": 40,
+    "EXCEPTION": 40, 
+    "CRITICAL": 50,
+    "TRACE": 60,
+    0: "NOTSET",
+    10: "DEBUG",
+    20: "INFO",
+    30: "WARNING",
+    40: "ERROR",
+    50: "CRITICAL",
+    60: "TRACE"
+}
+
 COLOUR_LOG_PATTERN={
 	'DEBUG':    'cyan',
 	'INFO':     'green',
 	'WARNING':  'yellow',
 	'ERROR':    'red',
-	'CRITICAL': 'red,bg_white',
-}, 
+	'CRITICAL': 'red,bg_white'
+} 
 
 COLOUR_LOG_LIGHT={
 	'DEBUG':    'light_purple',

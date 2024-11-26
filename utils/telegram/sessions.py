@@ -9,7 +9,7 @@ def is_sqlite_in_use(db_path: Union[str, Path]) -> bool:
         conn = sqlite3.connect(str(db_path))
         conn.close()
         return False 
-    except sqlite3.OperationalError:
+    except (sqlite3.OperationalError, OSError):
         return True  
 
 def get_sessions(
@@ -25,7 +25,6 @@ def get_sessions(
 
 def get_sessions_phones(
     path:Union[str, Path] ='sessions',
-    check_use: bool = True,
     replace_paths: bool = False,
 ) -> List[Tuple[str, Path]]:
 

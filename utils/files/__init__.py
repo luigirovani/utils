@@ -3,6 +3,8 @@ from collections.abc import Iterable
 from pathlib import Path
 import csv
 
+from..miscellaneous import is_list_like, convert_iter
+
 __all__ = ['read', 'write', 'read_csv', 'write_csv', 'join_paths']
 
 
@@ -12,11 +14,11 @@ class UnsafePathException(Exception):
  
 def read(
     path: Union[str, Path],
-    encoding: str = 'utf-8',
-    split: bool = False,
+    split: bool = True,
     drop_empty: bool = True,
-    ignore_errors: bool = False,
     binary: bool = False,
+    encoding: str = 'utf-8',
+    ignore_errors: bool = False,
     **kwargs
 ) -> Union[str, bytes, List[str]]:
     """
@@ -60,6 +62,7 @@ def write(
     path: Union[str, Path],
     content: Union[str, bytes, Iterable[str]],
     encoding: str = 'utf-8',
+    mode: str = 'w',
     ignore_errors: bool = False,
     binary: bool = False,
     **kwargs
@@ -84,7 +87,7 @@ def write(
     try:
         if binary:
             return _write_bin(path, content, **kwargs)
-        return _write_text(path, encoding, content, **kwargs)
+        return _write_text(path, encoding, mode, content, **kwargs)
     except Exception as e:
         if not ignore_errors:
             raise e
@@ -137,7 +140,8 @@ def read_csv(
 
 def write_csv(
     path: Union[str, Path],
-    data: Iterable[Iterable[str]],
+    rows: Iterable[Iterable[str]],
+    mode: str = 'w',
     delimiter: str = ',',
     encoding: str = 'utf-8',
     newline: str ='',
@@ -159,11 +163,11 @@ def write_csv(
     Returns:
         None
     """
-    with open(path, mode='w', encoding=encoding, newline=newline, **kwargs) as f:
+    with open(path, mode=mode, encoding=encoding, newline=newline, **kwargs) as f:
         writer = csv.writer(f, delimiter=delimiter)
         if header:
             writer.writerow(header)
-        writer.writerows(data)
+        writer.writerows(convert_iter(rows))
 
 
 def join_paths(
@@ -223,7 +227,7 @@ def join_paths(
     return resolved_path
 
 
-def _read_bin(path, **kwargs) -> bytes:
+def _read_bin(path,  **kwargs) -> bytes:
     with open(path, mode='rb', **kwargs) as f:
         return f.read()
     
@@ -231,9 +235,9 @@ def _write_bin(path, content: bytes, **kwargs) -> None:
     with open(path, mode='wb', **kwargs) as f:
         return f.write(content)
  
-def _write_text(path, encoding, content: str, **kwargs) -> None:
-    with open(path, 'w', encoding=encoding, **kwargs) as f:
-        if isinstance(content, Iterable):
+def _write_text(path, encoding, mode, content: str|Iterable[str], **kwargs) -> None:
+    with open(path, mode, encoding=encoding, **kwargs) as f:
+        if is_list_like(content):
             f.writelines(content)
         else:
             f.write(content)
@@ -243,5 +247,5 @@ def _read_text(path, encoding, **kwargs) -> Union[str, List[str]]:
         return f.read()
 
 def _read_csv(path, newline, encoding, delimiter, **kwargs) -> List[List[str]]:
-    with open(path, mode='r', newline=newline, encoding=encoding, **kwargs) as f:
+    with open(path, newline=newline, encoding=encoding, **kwargs) as f:
         return list(csv.reader(f, delimiter=delimiter))

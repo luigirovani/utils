@@ -6,10 +6,9 @@ from typing import Callable, Any, Union, Tuple, List
 from logging import Logger, getLogger
 
 from.sessions import get_sessions_phones
-from.client import Client
-from.telethon_utils import is_list_like
+from.client import Client, DELAY
+from..miscellaneous import sleep, is_list_like
 from..files import read_csv
-from..miscellaneous import sleep
 
 _base_loger = getLogger('Telegram')
 
@@ -21,7 +20,7 @@ async def run_client(
     api_hash: str,
     callback: Callable[[Client], Any],
     base_logger: Logger = _base_loger,
-    delay: float = 0.25,
+    delay: float = DELAY,
     receive_updates: bool = False,
     **keyargs: Any
 ) -> None:
@@ -46,6 +45,10 @@ async def run_client(
     try:
         async with Client(session, api_id, api_hash, base_logger, delay, receive_updates=receive_updates, **keyargs) as client:
             await client.run_callback(callback)
+
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        base_logger.critical(f'Shut Down app...')
+        raise 
 
     except Exception as e:
         base_logger.error(f'Error connecting {phone} : {e}')
@@ -85,7 +88,7 @@ async def run_app(
     delay_task: float = 1,
     limit_sessions: int = None,
     base_logger: Logger = _base_loger,
-    delay: float = 0.25,
+    delay: float = DELAY,
     receive_updates: bool = False,
     **keyargs
 ):
@@ -106,6 +109,7 @@ async def run_app(
     """
     apis = get_api(api)
     sessions = get_sessions_phones(sessions_path)
+    random.shuffle(sessions)
     if limit_sessions:
         sessions = sessions[:limit_sessions]
 
@@ -124,7 +128,7 @@ async def run_app(
             receive_updates=receive_updates, **keyargs
         )))
 
-    await asyncio.gather(*tasks)
+    await asyncio.gather(*tasks, return_exceptions=True)
 
     
 def get_emoji(channel_full_info, fallback_emojis: List[str] = []):

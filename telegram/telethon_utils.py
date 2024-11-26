@@ -58,8 +58,8 @@ def clean_session(session: Union[str, Path]) -> Path:
 
     if path != new_path and path.exists():
         try:
-            path.rename(new_path)
-        except:
+            path.rename(new_path.absolute())
+        except Exception as e:
             return path
 
     return new_path

@@ -3,27 +3,28 @@ import asyncio
 import os
 from pathlib import Path
 from logging import getLogger, Logger
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Union, TypeAlias
 
-from telethon import TelegramClient, utils, errors
+from telethon import TelegramClient, utils, errors, types as telethon_types
 from telethon.tl.functions import channels, contacts, messages
 from telethon.tl.functions.phone import GetGroupParticipantsRequest
-from telethon.tl.types import InputPhoneContact, User, Channel, Chat, InputPeerChannel, InputPeerChat, ChannelParticipantsAdmins, InputPeerUser, InputGroupCall
-from telethon.errors import FloodWaitError, PeerFloodError
+from telethon.tl.types import (
+    InputPhoneContact, ChannelParticipantsAdmins, InputGroupCall,
+    User, Channel, Chat
+)
 
+from telethon.errors import FloodWaitError, PeerFloodError, AuthKeyDuplicatedError, PhoneNumberBannedError as PhoneNumberBanned
 
-from ..miscellaneous import sleep
+from ..miscellaneous import sleep, convert_iter
 from ..loggers.colourprinter import colourprinter as colour
 from ..loggers.loggers import getChilder
+from .exceptions import *
+from .types import *
 from.telethon_utils import parse_phone, clean_phone, clean_session
 
 _base_loger = getLogger('Telegram')
 DELAY = os.getenv('CLIENT_DELAY', 0.25)
-
-class PhoneDeslogError(Exception):
-    def __init__(self, message=None, phone=''):
-        self.message = message or f"Session {phone} logged out"
-        super().__init__(self.message)
+DEFAULT_TIMEOUT_CONNECT = os.getenv('DEFAULT_TIMEOUT_CONNECT', 10)
 
 
 class Client(TelegramClient):
@@ -50,34 +51,58 @@ class Client(TelegramClient):
         try:
             super().__init__(session_path, api_id, api_hash, receive_updates=receive_updates, **kwargs)
         except Exception as e:
-            self.logger.error(f'Error in instance of Client {e}')
+            if 'database is locked' in str(e).lower():
+                e = DatabaseLockedError()
+            elif 'disk' in str(e).lower() or 'image' in str(e).lower():
+                e = ImageDiskMalformedError()
+
+            msg = e.msg if isinstance(e, ClientError) else  str(e)
+            self.logger.error(f'Error in instance of Client {msg}')
             raise e
 
-    async def start(self, request_code=False, **kwargs):
+
+    async def _connect_coro(self, request_code, **kwargs):
+
+        if not self.is_connected():
+            await super().connect()
+
+        if kwargs.get('bot_token'):
+            await super().start(**kwargs)
+
+        elif request_code:
+            await super().start(phone=self.phone, **kwargs)
+
+
+    async def start(self, request_code=False, timeout=DEFAULT_TIMEOUT_CONNECT, **kwargs):
         self.logger.debug(f'starting connect...')
 
         try:
-            if not self.is_connected():
-                await super().connect()
-                await self.sleep()
-
-            if request_code:
-                return await super().start(phone=self.phone, **kwargs)
-
+            await asyncio.wait_for(self._connect_coro(request_code, **kwargs), timeout)
+            await self.sleep()
             me = await super().get_me()
+
             if me:
-                self.name = colour(utils.get_display_name(me), 'PINK')
+                self.name = self.get_display(me, 'PINK')
                 self.logger.info(f'{self.name} connected successfully.')
                 await self.sleep()
                 self.create_group_table()
             else:
                 await self.send_code_request(self.phone)
-                raise PhoneDeslogError(phone=self.phone)
+                raise PhoneDeslogError(phone=self.phone)    
 
             return self
 
         except Exception as e:
-            self.logger.error(f'Error in start client: {e}')
+
+            if isinstance(e, PhoneNumberBanned):
+                e = PhoneNumberBannedError()
+            elif isinstance(e, AuthKeyDuplicatedError):
+                e = SessionHackedError()
+            elif isinstance(e, asyncio.TimeoutError):
+                e = TimeoutError
+
+            msg = e.msg if isinstance(e, ClientError) else  str(e)
+            self.logger.error(f'Error in start client: {msg}')
             raise e
 
     async def disconnect(self, ensure_close=False):
@@ -132,59 +157,11 @@ class Client(TelegramClient):
 
         return False
 
-    def create_group_table(self):
-        c = self.session._cursor()
-        c.execute('CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY, joined INTEGER DEFAULT 0)')
-        c.close()
-        self.session.save()
-
-    def add_joined_group(self, group_id: int):
-        c = self.session._cursor()
-        c.execute('INSERT OR IGNORE INTO groups (id, joined) VALUES (?, 1)', (group_id,))
-        c.close()
-        self.session.save()
-
-    def get_joined_groups(self):
-        c = self.session._cursor()
-        c.execute('SELECT id FROM groups WHERE joined = 1')
-        result = c.fetchall()
-        c.close()
-        return result
-
-    def remove_joined_group(self, group_id: int):
-        c = self.session._cursor()
-        c.execute('DELETE FROM groups WHERE id = ?', (group_id,))
-        c.close()
-        self.session.save()
 
     async def sleep(self, delay=None):
         if not delay:
             delay = self.delay
         return await sleep(delay)
-
-    @staticmethod
-    def colour(text: str, color: str) -> str:
-        return colour(text, color)
-
-    @staticmethod
-    def get_display(entity: User|Channel|Chat, color: str = 'LM') -> str:
-        return colour(utils.get_display_name(entity), color)
-
-    @staticmethod
-    def parse_phone(phone: str|int) -> str:
-        return parse_phone(phone)
-
-    @staticmethod
-    def clean_phone(phone: str|int|Path) -> str:
-        return clean_phone(phone)
-
-    @staticmethod
-    def clean_session(session_path: str|Path) -> Path:
-        return clean_session(session_path)
-
-    @staticmethod
-    def is_entity(obj: Any) -> bool:
-        return isinstance(obj, (User, Channel, Chat))
 
 
     async def fetch_admins(self, group: Channel|Chat, ids: bool = True) -> List[User|int]:
@@ -247,12 +224,53 @@ class Client(TelegramClient):
         finally:
             await self.sleep()
 
+    async def view_message(self, chat_id: int|str|GroupType, msg_id: List[int]|int, increment: bool = True):
+        try:
+            await self(messages.GetMessagesViewsRequest(
+                peer=chat_id,
+                id=convert_iter(msg_id),
+                increment=increment
+            ))
+        except Exception as e:
+            self.logger.debug(f'Error in view_message: {e}')
 
-    async def get_live(self, group: Chat|Channel|InputPeerChannel|InputPeerChat) -> InputGroupCall|None:
+    async def react_message(
+        self, 
+        chat_id: int|str|GroupType, 
+        msg_id: int, 
+        emoji: str, 
+        view: bool = True, 
+        big: bool = True, 
+        add_to_recent: bool = True, 
+        delay: float|int = None,
+        prob: float = 0.5
+    ):
+        if view:
+            await self.view_message(chat_id, msg_id, increment=True)
+            await self.sleep(delay)
 
-        if isinstance(group, (Channel, InputPeerChannel)):
+        try:         
+            if random.random() < prob: 
+                await self(messages.SendReactionRequest(
+                    peer=chat_id,
+                    msg_id=chat_id,
+                    big=big,
+                    add_to_recent=add_to_recent,
+                    reaction=[telethon_types.ReactionEmoji(
+                        emoticon=emoji
+                    )]
+                ))
+                await sleep(delay)
+
+        except Exception as e:
+            self.logger.error(f'Error in react_message: {e}')
+
+
+    async def get_live(self, group: GroupType) -> InputGroupCall|None:
+
+        if isinstance(group, ChannelType):
             full_chat = (await self(channels.GetFullChannelRequest(group))).full_chat
-        elif isinstance(group, (Chat, InputPeerChat)):
+        elif isinstance(group, ChatType):
             full_chat = (await self(messages.GetFullChatRequest(group))).full_chat
         else:
             raise TypeError('Invalid group type')
@@ -260,14 +278,9 @@ class Client(TelegramClient):
         if hasattr(full_chat, 'call') and full_chat.call:
             return full_chat.call
 
-    async def fetch_participants_from_call(self, group: Chat|Channel|InputPeerChannel|InputPeerChat, max_requests: int = 20, limit: int  = 100) -> List[User]:
+    async def fetch_participants_from_call(self, call: InputGroupCall, group: GroupType, max_requests: int = 20, limit: int  = 100) -> List[User]:
         users = []
-        offset = ''  
-        call = await self.get_live(group)
-
-        if not call:
-            self.logger.warning(f'{self.get_display(group)} does not have call active')
-            return users
+        offset = ''
 
         for _ in range (max_requests):
             result = await self(GetGroupParticipantsRequest(
@@ -347,8 +360,11 @@ class Client(TelegramClient):
             if not second_try:
                 await self.leave_channels()
                 return await self.join_chat(acess_hash, True)
-        except (errors.UserAlreadyParticipantError, errors.InviteRequestSentError):
+
+        except errors.UserAlreadyParticipantError:
             pass
+        except errors.InviteRequestSentError as e:
+            raise e
         except Exception as e:
             self.logger.error(f'Error in join_chat {e}')
             await self.get_dialogs()
@@ -381,4 +397,58 @@ class Client(TelegramClient):
             self.logger.error(f'Error in join_channel {e}')
             if entity:
                 self.remove_joined_group(entity.id)
+
+    async def join_group(self, link: str) -> Channel|Chat|None:
+        return await self.join_channel(link)
+
+
+    @staticmethod
+    def colour(text: str, color: str) -> str:
+        return colour(text, color)
+
+    @staticmethod
+    def get_display(entity: User|Channel|Chat, color: str = 'LM') -> str:
+        return colour(utils.get_display_name(entity), color)
+
+    @staticmethod
+    def parse_phone(phone: str|int) -> str:
+        return parse_phone(phone)
+
+    @staticmethod
+    def clean_phone(phone: str|int|Path) -> str:
+        return clean_phone(phone)
+
+    @staticmethod
+    def clean_session(session_path: str|Path) -> Path:
+        return clean_session(session_path)
+
+    @staticmethod
+    def is_entity(obj: Any) -> bool:
+        return isinstance(obj, (User, Channel, Chat))
+
+
+    def create_group_table(self):
+        c = self.session._cursor()
+        c.execute('CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY, joined INTEGER DEFAULT 0)')
+        c.close()
+        self.session.save()
+
+    def add_joined_group(self, group_id: int):
+        c = self.session._cursor()
+        c.execute('INSERT OR IGNORE INTO groups (id, joined) VALUES (?, 1)', (group_id,))
+        c.close()
+        self.session.save()
+
+    def get_joined_groups(self):
+        c = self.session._cursor()
+        c.execute('SELECT id FROM groups WHERE joined = 1')
+        result = c.fetchall()
+        c.close()
+        return result
+
+    def remove_joined_group(self, group_id: int):
+        c = self.session._cursor()
+        c.execute('DELETE FROM groups WHERE id = ?', (group_id,))
+        c.close()
+        self.session.save()
 

@@ -24,7 +24,7 @@ def is_list_like(obj: Any) -> bool:
 
 def convert_iter(obj: Any) -> list:
     """ Converts the given object to a list if it is not list-like."""
-    return obj if is_list_like(obj) else [obj]
+    return list(obj) if is_list_like(obj) else [obj]
 
 async def check_async_iterable(obj) -> bool:
     return  isinstance(obj, AsyncIterable)
