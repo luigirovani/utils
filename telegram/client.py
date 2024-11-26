@@ -3,11 +3,12 @@ import asyncio
 import os
 from pathlib import Path
 from logging import getLogger, Logger
-from typing import Any, Callable
+from typing import Any, Callable, List
 
 from telethon import TelegramClient, utils, errors
 from telethon.tl.functions import channels, contacts, messages
-from telethon.tl.types import InputPhoneContact, User, Channel, Chat, ChannelParticipantsAdmins
+from telethon.tl.functions.phone import GetGroupParticipantsRequest
+from telethon.tl.types import InputPhoneContact, User, Channel, Chat, InputPeerChannel, InputPeerChat, ChannelParticipantsAdmins, InputPeerUser, InputGroupCall
 from telethon.errors import FloodWaitError, PeerFloodError
 
 
@@ -186,7 +187,7 @@ class Client(TelegramClient):
         return isinstance(obj, (User, Channel, Chat))
 
 
-    async def fetch_admins(self, group: Channel|Chat, ids: bool = True) -> list[User|int]:
+    async def fetch_admins(self, group: Channel|Chat, ids: bool = True) -> List[User|int]:
         users = []
 
         try:
@@ -205,13 +206,13 @@ class Client(TelegramClient):
 
         return [user.id for user in users] if ids else users
 
-    async def add_user_to_channel(self, user: User, channel: Channel|Chat, delay: float|int =None, add_contat: bool = True) -> None:
+    async def add_user_to_channel(self, user: User, channel: Channel|Chat, delay: float|int =None, add_contat: bool = True, stack_info: bool = False) -> None:
         name_user =  colour(user.first_name, 'CYAN')
         name_channel =  colour(utils.get_display_name(channel), 'MAGENTA')
 
         try:
             if add_contat:
-                await self.add_contact(user)
+                user = await self.add_contact(user)
 
             if isinstance(channel, Chat):
                 await self(messages.AddChatUserRequest(channel.id, user.id, 100))
@@ -221,7 +222,7 @@ class Client(TelegramClient):
             self.logger.info(f'Added {name_user} to {name_channel}!')
 
         except Exception as e:
-            self.logger.error(f'Error in add {name_user} to {name_channel}: {e.__class__.__name__}')
+            self.logger.exception(f'Error in add {name_user} to {name_channel}: {e.__class__.__name__}', stack_info=stack_info)
             raise e
 
         finally:
@@ -229,19 +230,68 @@ class Client(TelegramClient):
 
     async def add_contact(self, user: User):
         try:
-            await self(contacts.ImportContactsRequest(
-                [InputPhoneContact(
-                    random.randrange(-2**63, 2**63),
-                    user.phone if user.phone else '',
-                    user.first_name if user.first_name else '',
-                    user.last_name if user.last_name else ''
-                )]
+            result = await self(contacts.AddContactRequest(
+                user,
+                user.first_name if user.first_name else '',
+                user.last_name if user.last_name else '',
+                user.phone if user.phone else ''
             ))
             self.logger.debug(f'Success in add_contact')
+            if result.users:
+                return result.users[0]
+            return user
+
         except Exception as e:
             self.logger.debug(f'Error in add_contact: {e}')
+            return user
         finally:
             await self.sleep()
+
+
+    async def get_live(self, group: Chat|Channel|InputPeerChannel|InputPeerChat) -> InputGroupCall|None:
+
+        if isinstance(group, (Channel, InputPeerChannel)):
+            full_chat = (await self(channels.GetFullChannelRequest(group))).full_chat
+        elif isinstance(group, (Chat, InputPeerChat)):
+            full_chat = (await self(messages.GetFullChatRequest(group))).full_chat
+        else:
+            raise TypeError('Invalid group type')
+
+        if hasattr(full_chat, 'call') and full_chat.call:
+            return full_chat.call
+
+    async def fetch_participants_from_call(self, group: Chat|Channel|InputPeerChannel|InputPeerChat, max_requests: int = 20, limit: int  = 100) -> List[User]:
+        users = []
+        offset = ''  
+        call = await self.get_live(group)
+
+        if not call:
+            self.logger.warning(f'{self.get_display(group)} does not have call active')
+            return users
+
+        for _ in range (max_requests):
+            result = await self(GetGroupParticipantsRequest(
+                call=call,
+                ids=[],
+                sources=[],
+                offset=offset,
+                limit=limit
+            ))
+
+            self.session.process_entities(result)
+            self.session.save()
+
+            for participant in result.users:
+                users.append(participant)
+
+            if len(users) >= result.count-2:
+                break 
+
+            offset = result.next_offset
+            await self.sleep()
+
+        self.logger.info(f'Fetched {len(users)} participants from {self.get_display(group)}')
+        return users
 
     async def leave_channels(self, limit: int = 5):
         count = 1
