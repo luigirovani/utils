@@ -90,6 +90,7 @@ async def run_app(
     base_logger: Logger = _base_loger,
     delay: float = DELAY,
     receive_updates: bool = False,
+    black_list_phones: List[str] = [],
     **keyargs
 ):
     """
@@ -108,7 +109,7 @@ async def run_app(
         None
     """
     apis = get_api(api)
-    sessions = get_sessions_phones(sessions_path)
+    sessions = [s for s in get_sessions_phones(sessions_path) if s not in black_list_phones]
     random.shuffle(sessions)
     if limit_sessions:
         sessions = sessions[:limit_sessions]

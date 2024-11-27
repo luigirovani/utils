@@ -183,13 +183,18 @@ class Client(TelegramClient):
 
         return [user.id for user in users] if ids else users
 
-    async def add_user_to_channel(self, user: User, channel: Channel|Chat, delay: float|int =None, add_contat: bool = True, stack_info: bool = False) -> None:
+    async def add_user_to_channel(self, user: User, channel: Channel|Chat|str, delay: float|int =None, add_contat: bool = True, stack_info: bool = False) -> None:
+        
+        if isinstance(channel, str):
+            channel = await self.join_channel(channel)
+
         name_user =  colour(user.first_name, 'CYAN')
         name_channel =  colour(utils.get_display_name(channel), 'MAGENTA')
 
+        if add_contat:
+            user = await self.add_contact(user)
+
         try:
-            if add_contat:
-                user = await self.add_contact(user)
 
             if isinstance(channel, Chat):
                 await self(messages.AddChatUserRequest(channel.id, user.id, 100))
@@ -205,7 +210,7 @@ class Client(TelegramClient):
         finally:
             await self.sleep(delay)
 
-    async def add_contact(self, user: User):
+    async def add_contact(self, user: User, raise_exceptions: bool = False):
         try:
             result = await self(contacts.AddContactRequest(
                 user,
@@ -220,11 +225,14 @@ class Client(TelegramClient):
 
         except Exception as e:
             self.logger.debug(f'Error in add_contact: {e}')
+            if raise_exceptions:
+                raise e
             return user
+
         finally:
             await self.sleep()
 
-    async def view_message(self, chat_id: int|str|GroupType, msg_id: List[int]|int, increment: bool = True):
+    async def view_message(self, chat_id: int|str|GroupType, msg_id: List[int]|int, increment: bool = True, raise_exceptions: bool = False):
         try:
             await self(messages.GetMessagesViewsRequest(
                 peer=chat_id,
@@ -232,6 +240,8 @@ class Client(TelegramClient):
                 increment=increment
             ))
         except Exception as e:
+            if raise_exceptions:
+                raise e
             self.logger.debug(f'Error in view_message: {e}')
 
     async def react_message(
@@ -243,7 +253,7 @@ class Client(TelegramClient):
         big: bool = True, 
         add_to_recent: bool = True, 
         delay: float|int = None,
-        prob: float = 0.5
+        prob: float = 1.0
     ):
         if view:
             await self.view_message(chat_id, msg_id, increment=True)
@@ -364,6 +374,7 @@ class Client(TelegramClient):
         except errors.UserAlreadyParticipantError:
             pass
         except errors.InviteRequestSentError as e:
+            self.logger.warning(f'Client awaiting approval to chat')
             raise e
         except Exception as e:
             self.logger.error(f'Error in join_chat {e}')
@@ -378,6 +389,7 @@ class Client(TelegramClient):
                 entity = await self.get_entity(link)
                 ids = [g[0] for g in self.get_joined_groups()]
                 if entity.id in ids:
+                    self.logger.debug(f'client already part of group {self.get_display(entity)}!')
                     return entity
             except:
                 entity = None
