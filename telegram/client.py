@@ -183,28 +183,37 @@ class Client(TelegramClient):
 
         return [user.id for user in users] if ids else users
 
-    async def add_user_to_channel(self, user: User, channel: Channel|Chat|str, delay: float|int =None, add_contat: bool = True, stack_info: bool = False) -> None:
-        
-        if isinstance(channel, str):
-            channel = await self.join_channel(channel)
+    async def add_user_to_channel(
+        self, 
+        user: User, 
+        channel: Channel|Chat|str, 
+        delay: float|int|None =None, 
+        add_contat: bool = True,
+        join_channel: bool = True,
+        fwd_limit: int = 100,
+        stack_info: bool = False
+    ) -> None:
 
-        name_user =  colour(user.first_name, 'CYAN')
-        name_channel =  colour(utils.get_display_name(channel), 'MAGENTA')
+        if isinstance(channel, str):
+            channel = await self.join_channel(channel) if join_channel else await self.get_entity(channel)
 
         if add_contat:
             user = await self.add_contact(user)
 
+        name_user =  colour(user.first_name, 'CYAN')
+        name_channel =  colour(utils.get_display_name(channel), 'MAGENTA')
+
         try:
 
             if isinstance(channel, Chat):
-                await self(messages.AddChatUserRequest(channel.id, user.id, 100))
+                await self(messages.AddChatUserRequest(channel.id, user, fwd_limit))
             else:
                 await self(channels.InviteToChannelRequest(channel, [user]))
 
             self.logger.info(f'Added {name_user} to {name_channel}!')
 
         except Exception as e:
-            self.logger.exception(f'Error in add {name_user} to {name_channel}: {e.__class__.__name__}', stack_info=stack_info)
+            self.logger.error(f'Error in add {name_user} to {name_channel}: {e.__class__.__name__}', stack_info=stack_info)
             raise e
 
         finally:
@@ -227,7 +236,7 @@ class Client(TelegramClient):
             self.logger.debug(f'Error in add_contact: {e}')
             if raise_exceptions:
                 raise e
-            return user
+            return await self.get_entity(user)
 
         finally:
             await self.sleep()
