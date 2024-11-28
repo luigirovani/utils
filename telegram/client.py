@@ -285,7 +285,7 @@ class Client(TelegramClient):
             self.logger.error(f'Error in react_message: {e}')
 
 
-    async def get_live(self, group: GroupType) -> InputGroupCall|None:
+    async def get_call(self, group: GroupType) -> InputGroupCall|None:
 
         if isinstance(group, ChannelType):
             full_chat = (await self(channels.GetFullChannelRequest(group))).full_chat
