@@ -1,15 +1,21 @@
+import datetime
 import random
 import asyncio
 import os
+import re
 from pathlib import Path
 from logging import getLogger, Logger
-from typing import Any, Callable, List, Union, TypeAlias
+from typing import Any, Callable, List, Union, TypeAlias, Tuple
+from datetime import datetime
 
 from telethon import TelegramClient, utils, errors, types as telethon_types
 from telethon.tl.functions import channels, contacts, messages
-from telethon.tl.functions.phone import GetGroupParticipantsRequest
+from telethon.tl.functions.phone import GetGroupParticipantsRequest, GetGroupCallRequest
+from telethon.tl.functions.users import GetFullUserRequest
+
 from telethon.tl.types import (
-    InputPhoneContact, ChannelParticipantsAdmins, InputGroupCall,
+    InputPhoneContact, ChannelParticipantsAdmins, 
+    InputGroupCall, GroupCall,
     User, Channel, Chat
 )
 
@@ -38,9 +44,10 @@ class Client(TelegramClient):
         delay: float = DELAY,
         receive_updates: bool = False,
         limit_spam_flood: int = 5,
+        parse_session : bool = True,
         **kwargs: Any
     ):
-        session_path = clean_session(session)
+        session_path = clean_session(session) if parse_session else Path(session)
         self.phone = session_path.stem
         self.name = self.phone
         self.delay = delay
@@ -49,7 +56,7 @@ class Client(TelegramClient):
         self.logger = getChilder(self.phone, base_logger)
 
         try:
-            super().__init__(session_path, api_id, api_hash, receive_updates=receive_updates, **kwargs)
+            super().__init__(str(session_path), api_id, api_hash, receive_updates=receive_updates, **kwargs)
         except Exception as e:
             if 'database is locked' in str(e).lower():
                 e = DatabaseLockedError()
@@ -183,29 +190,51 @@ class Client(TelegramClient):
 
         return [user.id for user in users] if ids else users
 
-    async def add_user_to_channel(self, user: User, channel: Channel|Chat, delay: float|int =None, add_contat: bool = True, stack_info: bool = False) -> None:
-        name_user =  colour(user.first_name, 'CYAN')
+    async def add_user_to_channel(
+        self, 
+        user: User|str, 
+        channel: Channel|Chat|str, 
+        delay: float|int|None =None, 
+        add_contat: bool = True,
+        join_channel: bool = True,
+        fwd_limit: int = 100,
+        stack_info: bool = False,
+        second_try: bool = False
+    ) -> None:
+
+        if isinstance(channel, str):
+            channel = await self.join_channel(channel) if join_channel else await self.get_entity(channel)
+
+        if add_contat:
+            user = await self.add_contact(user)
+
+        name_user =  self.get_display(user, 'CYAN')
         name_channel =  colour(utils.get_display_name(channel), 'MAGENTA')
 
         try:
-            if add_contat:
-                user = await self.add_contact(user)
 
             if isinstance(channel, Chat):
-                await self(messages.AddChatUserRequest(channel.id, user.id, 100))
+                await self(messages.AddChatUserRequest(channel.id, user, fwd_limit))
             else:
                 await self(channels.InviteToChannelRequest(channel, [user]))
 
             self.logger.info(f'Added {name_user} to {name_channel}!')
 
+        except ValueError:
+            if not second_try and isinstance(user, User) and user.username:
+                return await self.add_user_to_channel(user.username, channel, delay, False, False, fwd_limit, stack_info, True)
+
+            self.logger.error(f'Error in add {name_user} to {name_channel}: {e.__class__.__name__}', stack_info=stack_info)
+            raise
+
         except Exception as e:
-            self.logger.exception(f'Error in add {name_user} to {name_channel}: {e.__class__.__name__}', stack_info=stack_info)
+            self.logger.error(f'Error in add {name_user} to {name_channel}: {e.__class__.__name__}', stack_info=stack_info)
             raise e
 
         finally:
             await self.sleep(delay)
 
-    async def add_contact(self, user: User):
+    async def add_contact(self, user: User, raise_exceptions: bool = False) -> User:
         try:
             result = await self(contacts.AddContactRequest(
                 user,
@@ -220,11 +249,37 @@ class Client(TelegramClient):
 
         except Exception as e:
             self.logger.debug(f'Error in add_contact: {e}')
-            return user
+            if raise_exceptions:
+                raise e
+            return await self.get_entity(user)
+
         finally:
             await self.sleep()
 
-    async def view_message(self, chat_id: int|str|GroupType, msg_id: List[int]|int, increment: bool = True):
+    async def search_groups(self, key: str):
+        try:
+            results = await self(contacts.SearchRequest(
+                q=key,
+                limit=100
+            ))
+            print(results.stringify())
+            return results
+        except Exception as e:
+            await self.logger.debug(f'Error in search_groups: {e}')
+            return []
+        finally:
+            await sleep()
+
+    async def resolve_username(self, username: str) -> User|None:
+        try:
+            result = await self(contacts.ResolveUsernameRequest(username))
+            print(result.stringify())
+            return result
+
+        except Exception as e:
+            self.logger.debug(f'Error in resolve_username: {e}')
+
+    async def view_message(self, chat_id: int|str|GroupType, msg_id: List[int]|int, increment: bool = True, raise_exceptions: bool = False):
         try:
             await self(messages.GetMessagesViewsRequest(
                 peer=chat_id,
@@ -232,6 +287,8 @@ class Client(TelegramClient):
                 increment=increment
             ))
         except Exception as e:
+            if raise_exceptions:
+                raise e
             self.logger.debug(f'Error in view_message: {e}')
 
     async def react_message(
@@ -243,7 +300,7 @@ class Client(TelegramClient):
         big: bool = True, 
         add_to_recent: bool = True, 
         delay: float|int = None,
-        prob: float = 0.5
+        prob: float = 1.0
     ):
         if view:
             await self.view_message(chat_id, msg_id, increment=True)
@@ -266,19 +323,40 @@ class Client(TelegramClient):
             self.logger.error(f'Error in react_message: {e}')
 
 
-    async def get_live(self, group: GroupType) -> InputGroupCall|None:
+    async def get_full_entity(self, entity: Channel|Chat|User|str|int) -> telethon_types.ChatFull|telethon_types.ChannelFull:
+        if isinstance(entity, str) or isinstance(entity, int):
+            entity = await self.get_entity(entity)
 
-        if isinstance(group, ChannelType):
-            full_chat = (await self(channels.GetFullChannelRequest(group))).full_chat
-        elif isinstance(group, ChatType):
-            full_chat = (await self(messages.GetFullChatRequest(group))).full_chat
+        if isinstance(entity, Channel):
+            return (await self(channels.GetFullChannelRequest(entity))).full_chat
+        elif isinstance(entity, Chat):
+            return (await self(messages.GetFullChatRequest(entity))).full_chat
+        elif isinstance(entity, User):
+            return (await self(GetFullUserRequest(entity))).full_user
         else:
             raise TypeError('Invalid group type')
 
-        if hasattr(full_chat, 'call') and full_chat.call:
-            return full_chat.call
+    async def get_call(self, group: GroupType, limit: int = 100, complete_entity: bool = False) -> InputGroupCall|GroupCall|None:
+        full_chat = await self.get_full_entity(group)
 
-    async def fetch_participants_from_call(self, call: InputGroupCall, max_requests: int = 20, limit: int  = 100) -> List[User]:
+        if hasattr(full_chat, 'call') and full_chat.call:
+            result = await self(GetGroupCallRequest(full_chat.call, limit))
+
+            if complete_entity:
+                return result
+
+            call = full_chat.call
+            call.active = not bool(result.call.schedule_date)
+            return call
+
+    async def fetch_participants_from_call(
+        self,
+        call: InputGroupCall,
+        group: GroupType, 
+        max_requests: int = 20, 
+        limit: int  = 100
+    )-> List[User]:
+
         users = []
         offset = ''
 
@@ -305,6 +383,63 @@ class Client(TelegramClient):
 
         self.logger.info(f'Fetched {len(users)} participants from {self.get_display(group)}')
         return users
+
+
+    async def fetch_users_from_reply(self, channel: Channel, limit: int = 20, delay: int|float = None) -> List[User]:
+        users = {}
+
+        async for message in self.iter_messages(channel, limit=limit):
+            if hasattr(message, 'replies') and message.replies and message.replies.replies > 0:
+                reply = await self(messages.GetRepliesRequest(
+                    peer=channel,
+                    msg_id=message.id,
+                    offset_id=0,  
+                    offset_date=None,
+                    add_offset=0,
+                    limit=100,  
+                    max_id=0,
+                    min_id=0,
+                    hash=0                            
+                ))
+                for user in reply.users:
+                    users[user.id] = user
+
+                await self.sleep(delay)
+
+        return list (users.values())
+
+    async def check_spambot(self) -> Tuple[bool, datetime|None]:
+        spambot = 'SpamBot'
+        datepattern = re.compile(r"(\d{1,2} \w+ \d{4}, \d{2}:\d{2} UTC)")
+        spamtext = [
+            "no limits are currently applied to your account",
+            "nenhum limite foi aplicado"
+        ]
+
+        try:
+            await self.send_message(spambot, '/start')
+            await self.sleep(2)
+            msg = await self.get_messages(spambot, limit=1)
+            msg = msg[0].text
+
+            if any (text in msg for text in spamtext):
+                self.logger.debug(f'Client is not a spambot')
+                return False, None
+
+            matches = datepattern.findall(msg)          
+            if matches:
+                for match in matches:
+                    date_limitation = datetime.strptime(match, '%d %b %Y, %H:%M %Z')
+                    self.logger.debug(f'Client is a spambot until {date_limitation}')
+                    return True, date_limitation
+
+            return False, None
+
+        except Exception as e:
+            if 'blocked this user' in str(e).lower():
+                self.logger.debug(f'Client blocked spambot\n Try again ')
+                return False, None
+            self.logger.error(f'Error in check_spambot: {e}')
 
     async def leave_channels(self, limit: int = 5):
         count = 1
@@ -364,7 +499,12 @@ class Client(TelegramClient):
         except errors.UserAlreadyParticipantError:
             pass
         except errors.InviteRequestSentError as e:
+            self.logger.warning(f'Client awaiting approval to chat')
+            if not second_try:
+                await self.sleep(3)
+                return await self.join_chat(acess_hash, True)
             raise e
+
         except Exception as e:
             self.logger.error(f'Error in join_chat {e}')
             await self.get_dialogs()
@@ -378,6 +518,7 @@ class Client(TelegramClient):
                 entity = await self.get_entity(link)
                 ids = [g[0] for g in self.get_joined_groups()]
                 if entity.id in ids:
+                    self.logger.debug(f'client already part of group {self.get_display(entity)}!')
                     return entity
             except:
                 entity = None
@@ -408,7 +549,10 @@ class Client(TelegramClient):
 
     @staticmethod
     def get_display(entity: User|Channel|Chat, color: str = 'LM') -> str:
-        return colour(utils.get_display_name(entity), color)
+        display_name = utils.get_display_name(entity)
+        if not display_name:
+            display_name = str(entity) if isinstance(entity, (str, int)) else ''
+        return colour(display_name, color)
 
     @staticmethod
     def parse_phone(phone: str|int) -> str:

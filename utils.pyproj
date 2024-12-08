@@ -35,7 +35,10 @@
     <Compile Include="loggers\filters.py" />
     <Compile Include="loggers\handles.py" />
     <Compile Include="loggers\loggers.py" />
+    <Compile Include="miscellaneous\filters.py" />
+    <Compile Include="miscellaneous\stream.py" />
     <Compile Include="miscellaneous\__init__.py" />
+    <Compile Include="setup.py" />
     <Compile Include="telegram\client.py" />
     <Compile Include="telegram\exceptions.py" />
     <Compile Include="telegram\sessions.py" />

@@ -5,17 +5,23 @@ import os
 import re
 from pathlib import Path
 from logging import getLogger, Logger
-from typing import Any, Callable, List, Union, TypeAlias, Tuple
+from typing import Any, Callable, List, Union, TypeAlias, Tuple, Dict
 from datetime import datetime
 
 from telethon import TelegramClient, utils, errors, types as telethon_types
 from telethon.tl.functions import channels, contacts, messages
 from telethon.tl.functions.phone import GetGroupParticipantsRequest, GetGroupCallRequest
+from telethon.tl.functions.users import GetFullUserRequest
+
 from telethon.tl.types import (
     InputPhoneContact, ChannelParticipantsAdmins, 
     InputGroupCall, GroupCall,
-    User, Channel, Chat
+    User, Channel, Chat,
+    ChannelFull, ChatFull, UserFull,
+    PeerUser, PeerChat, PeerChannel,
+    InputPeerUser, InputPeerChat, InputPeerChannel
 )
+
 
 from telethon.errors import FloodWaitError, PeerFloodError, AuthKeyDuplicatedError, PhoneNumberBannedError as PhoneNumberBanned
 
@@ -54,7 +60,7 @@ class Client(TelegramClient):
         self.logger = getChilder(self.phone, base_logger)
 
         try:
-            super().__init__(session_path, api_id, api_hash, receive_updates=receive_updates, **kwargs)
+            super().__init__(str(session_path), api_id, api_hash, receive_updates=receive_updates, **kwargs)
         except Exception as e:
             if 'database is locked' in str(e).lower():
                 e = DatabaseLockedError()
@@ -190,23 +196,19 @@ class Client(TelegramClient):
 
     async def add_user_to_channel(
         self, 
-        user: User, 
+        user: User|str, 
         channel: Channel|Chat|str, 
         delay: float|int|None =None, 
-        add_contat: bool = True,
         join_channel: bool = True,
         fwd_limit: int = 100,
-        stack_info: bool = False
+        stack_info: bool = False,
     ) -> None:
 
         if isinstance(channel, str):
-            channel = await self.join_channel(channel) if join_channel else await self.get_entity(channel)
+            channel = await self.join_channel(channel) if join_channel else await self.get_input_entity(channel)
 
-        if add_contat:
-            user = await self.add_contact(user)
-
-        name_user =  colour(user.first_name, 'CYAN')
-        name_channel =  colour(utils.get_display_name(channel), 'MAGENTA')
+        name_user =  self.get_display(user, 'CYAN')
+        name_channel = self.get_display(channel, 'MAGENTA')
 
         try:
 
@@ -224,27 +226,85 @@ class Client(TelegramClient):
         finally:
             await self.sleep(delay)
 
-    async def add_contact(self, user: User, raise_exceptions: bool = False) -> User:
+    async def add_contact(self, user: User, raise_exceptions: bool = False) -> bool:
         try:
-            result = await self(contacts.AddContactRequest(
-                user,
-                user.first_name if user.first_name else '',
-                user.last_name if user.last_name else '',
-                user.phone if user.phone else ''
-            ))
-            self.logger.debug(f'Success in add_contact')
-            if result.users:
-                return result.users[0]
-            return user
+            if user.phone:
+
+                await self(contacts.ImportContactsRequest(InputPhoneContact(
+                    random.randrange(-2**63, 2**63),
+                    user.phone,
+                    user.first_name if user.first_name else '',
+                    user.last_name if user.last_name else ''
+                )))
+
+                await self(contacts.SearchRequest(
+                    q=user.phone,
+                    limit=100
+                ))
+                await self.sleep()
+                self.logger.debug(f'Success in add_contact')
+                return True
 
         except Exception as e:
             self.logger.debug(f'Error in add_contact: {e}')
             if raise_exceptions:
                 raise e
-            return await self.get_entity(user)
 
         finally:
+            await self(contacts.SearchRequest(
+                q=utils.get_display_name(user),
+                limit=100
+            ))
             await self.sleep()
+
+    async def search_groups(self, key: str, limit: int = 100):
+        try:
+            results = await self(contacts.SearchRequest(
+                q=key,
+                limit=limit
+            ))
+            return results
+        except Exception as e:
+            await self.logger.debug(f'Error in search_groups: {e}')
+            return []
+        finally:
+            await sleep()
+
+    async def resolve_username(self, username: str) -> User|None:
+        try:
+            result = await self(contacts.ResolveUsernameRequest(username))
+            return result.users[0]
+
+        except Exception as e:
+            self.logger.debug(f'Error in resolve_username: {e}')
+
+    async def _resolve_user_entity(self, entity: User):
+
+        try:
+            return await self.resolve_username(entity.username)
+        except:
+            pass
+
+        try:
+            await self.add_contact(entity, raise_exceptions=True)
+            return await self._get_entity_from_string(entity.phone)
+        except:
+            pass
+
+        try:
+            return await self.get_input_entity(entity)
+        except:
+            pass
+
+    async def resolve_user_entity(self, entity: User, msg: str = 'oi') -> User|None:
+        result = await self._resolve_user_entity(entity)
+        if result:
+            return result
+
+        try:
+            await self.send_message(entity, msg)
+        except:
+            pass
 
     async def view_message(self, chat_id: int|str|GroupType, msg_id: List[int]|int, increment: bool = True, raise_exceptions: bool = False):
         try:
@@ -290,25 +350,32 @@ class Client(TelegramClient):
             self.logger.error(f'Error in react_message: {e}')
 
 
-    async def get_full_entity(self, entity: Channel|Chat|str|int) -> telethon_types.ChatFull|telethon_types.ChannelFull:
-        if isinstance(entity, str) or isinstance(entity, int):
-            entity = await self.get_entity(entity)
+    async def get_full_entity(self, entity: Channel|Chat|User|str|int) -> ChatFull|ChannelFull|UserFull:
 
-        if isinstance(entity, Channel):
+        if isinstance(entity, ChannelType):
             return (await self(channels.GetFullChannelRequest(entity))).full_chat
-        elif isinstance(entity, Chat):
+        elif isinstance(entity, ChannelType):
             return (await self(messages.GetFullChatRequest(entity))).full_chat
+        elif isinstance(entity, UserType):
+            return (await self(GetFullUserRequest(entity))).full_user
         else:
             raise TypeError('Invalid group type')
 
-    async def get_call(self, group: GroupType) -> GroupCall|None:
+    async def get_call(self, group: GroupType, limit: int = 100, complete_entity: bool = False) -> InputGroupCall|GroupCall|None:
         full_chat = await self.get_full_entity(group)
+
         if hasattr(full_chat, 'call') and full_chat.call:
-            return await self(GetGroupCallRequest(full_chat.call))
+            result = await self(GetGroupCallRequest(full_chat.call, limit))
+            if complete_entity:
+                return result
+
+            call = full_chat.call
+            call.active = not bool(result.call.schedule_date)
+            return call
 
     async def fetch_participants_from_call(
         self,
-        call: InputGroupCall|GroupCall,
+        call: InputGroupCall,
         group: GroupType, 
         max_requests: int = 20, 
         limit: int  = 100
@@ -316,9 +383,6 @@ class Client(TelegramClient):
 
         users = []
         offset = ''
-
-        if isinstance(call, GroupCall):
-            call = InputGroupCall(id=call.id, access_hash=call.access_hash)
 
         for _ in range (max_requests):
             result = await self(GetGroupParticipantsRequest(
@@ -344,6 +408,29 @@ class Client(TelegramClient):
         self.logger.info(f'Fetched {len(users)} participants from {self.get_display(group)}')
         return users
 
+
+    async def fetch_users_from_reply(self, channel: Channel, limit: int = 20, delay: int|float = None) -> List[User]:
+        users = {}
+
+        async for message in self.iter_messages(channel, limit=limit):
+            if hasattr(message, 'replies') and message.replies and message.replies.replies > 0:
+                reply = await self(messages.GetRepliesRequest(
+                    peer=channel,
+                    msg_id=message.id,
+                    offset_id=0,  
+                    offset_date=None,
+                    add_offset=0,
+                    limit=100,  
+                    max_id=0,
+                    min_id=0,
+                    hash=0                            
+                ))
+                for user in reply.users:
+                    users[user.id] = user
+
+                await self.sleep(delay)
+
+        return list (users.values())
 
     async def check_spambot(self) -> Tuple[bool, datetime|None]:
         spambot = 'SpamBot'
@@ -437,7 +524,11 @@ class Client(TelegramClient):
             pass
         except errors.InviteRequestSentError as e:
             self.logger.warning(f'Client awaiting approval to chat')
+            if not second_try:
+                await self.sleep(3)
+                return await self.join_chat(acess_hash, True)
             raise e
+
         except Exception as e:
             self.logger.error(f'Error in join_chat {e}')
             await self.get_dialogs()
@@ -462,7 +553,9 @@ class Client(TelegramClient):
             else:
                 await self._join_channel(link)
 
-            entity = await self.get_entity(link)
+            if not entity:
+                entity = await self.get_entity(link)
+
             self.logger.info(f'Success join in {self.get_display(entity, 'LC')}')
             self.add_joined_group(entity.id)
             return entity
@@ -481,8 +574,30 @@ class Client(TelegramClient):
         return colour(text, color)
 
     @staticmethod
-    def get_display(entity: User|Channel|Chat, color: str = 'LM') -> str:
-        return colour(utils.get_display_name(entity), color)
+    def get_id(entity) -> int|None:
+        try:
+            return utils.get_peer_id(entity)
+        except:
+            pass
+
+    def get_display(self, entity, color: str = 'LM') -> str:
+
+        if isinstance(entity, dict) and entity.get('name'):
+            display_name = entity['name']
+        else:
+            display_name = utils.get_display_name(entity)
+
+        if not display_name:
+            cached_entity = self.get_cached_entity(entity)
+
+            if cached_entity:
+                display_name = cached_entity['name']
+            elif isinstance(entity, (str, int)):
+                display_name = str(entity)
+            else:
+                display_name = ''
+
+        return colour(display_name, color)
 
     @staticmethod
     def parse_phone(phone: str|int) -> str:
@@ -500,29 +615,55 @@ class Client(TelegramClient):
     def is_entity(obj: Any) -> bool:
         return isinstance(obj, (User, Channel, Chat))
 
+    def get_cached_entity(self, entity, resolve = False) -> Dict[str, Any]| None:
 
-    def create_group_table(self):
-        c = self.session._cursor()
-        c.execute('CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY, joined INTEGER DEFAULT 0)')
-        c.close()
-        self.session.save()
+        if resolve:
+            try:
+                username, is_invite = utils.parse_username(entity)
+                if username and not is_invite:
+                    entity = username
+                return self.session.get_input_entity(entity)
+            except Exception as e:
+                pass
 
-    def add_joined_group(self, group_id: int):
-        c = self.session._cursor()
-        c.execute('INSERT OR IGNORE INTO groups (id, joined) VALUES (?, 1)', (group_id,))
-        c.close()
-        self.session.save()
+        query = 'SELECT * FROM entities WHERE id = ?'
+        entity_id = self.get_id(entity)
+        if entity_id:
+            result = self.get_query(query, (entity_id,), to_dict=True)
+            return result[0] if result else None
 
-    def get_joined_groups(self):
+    def get_query(self, query: str, data: Tuple = (), to_dict: bool = False) -> List[Tuple[Any]|Dict[str,Any]]:
         c = self.session._cursor()
-        c.execute('SELECT id FROM groups WHERE joined = 1')
+        c.execute(query, data)
         result = c.fetchall()
+
+        if to_dict and result:
+            column_names = [col[0] for col in c.description]
+            result = [
+                dict(zip(column_names, row))
+                for row in result
+            ]
+
         c.close()
         return result
 
-    def remove_joined_group(self, group_id: int):
+    def execute_query(self, query: str, data: Tuple = ()) -> None:
         c = self.session._cursor()
-        c.execute('DELETE FROM groups WHERE id = ?', (group_id,))
-        c.close()
+        try:
+            c.execute(query, data)
+        except Exception as e:
+            print(e)
         self.session.save()
+        c.close()
 
+    def create_group_table(self):
+         self.execute_query('CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY, joined INTEGER DEFAULT 0)')
+
+    def add_joined_group(self, group_id: int):
+        self.execute_query('INSERT OR IGNORE INTO groups (id, joined) VALUES (?, 1)', (group_id,))
+
+    def get_joined_groups(self):
+        return self.get_query('SELECT id FROM groups WHERE joined = 1')
+
+    def remove_joined_group(self, group_id: int):
+        self.execute_query('UPDATE groups SET joined = 0 WHERE id = ?', (group_id,))
