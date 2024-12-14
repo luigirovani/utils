@@ -1,5 +1,6 @@
 from telethon import types as telethon_types
-from telethon.hints import Entity, EntityLike
+from telethon.types import Message
+from telethon.hints import Entity, EntityLike, FullEntity
 
 GroupEntity = telethon_types.Chat | telethon_types.Channel
 ChatType = telethon_types.Chat | telethon_types.InputPeerChat | telethon_types.PeerChat

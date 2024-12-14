@@ -10,6 +10,7 @@ from logging import getLogger, Logger
 from typing import Any, Callable, List, Tuple, Dict
 from datetime import datetime
 
+from networkx import is_isolate
 from telethon import TelegramClient, utils, errors, types as telethon_types
 from telethon.tl.functions import channels, contacts, messages
 from telethon.tl.functions.phone import GetGroupParticipantsRequest, GetGroupCallRequest
@@ -19,7 +20,8 @@ from telethon.tl.types import (
     InputPhoneContact, ChannelParticipantsAdmins, 
     InputGroupCall, GroupCall,
     User, Channel, Chat,
-    ChannelFull, ChatFull, UserFull
+    ChannelFull, ChatFull, UserFull,
+    InputPeerUser
 )
 
 
@@ -115,7 +117,7 @@ class Client(TelegramClient):
             self.logger.error(f'Error in start client: {msg}')
             raise e
 
-    async def disconnect(self, ensure_close=False):
+    async def disconnect_close(self, ensure_close):
         self.logger.debug(f'Starting disconnect')
 
         try:
@@ -130,6 +132,9 @@ class Client(TelegramClient):
                 self.session.close()
             except Exception as e:
                 self.logger.debug(f'Error in close session: {e}')
+
+    async def disconnect(self, ensure_close=False):
+        return asyncio.shield(self.loop.create_task(self.disconnect_close(ensure_close)))
 
     async def run_callback(self, callback: Callable[[TelegramClient], Any], timeout=None, **kwargs: Any):
         c_name = colour(callback.__name__, 'Y')
@@ -176,6 +181,8 @@ class Client(TelegramClient):
 
     async def fetch_admins(self, group: Channel|Chat, ids: bool = True) -> List[User|int]:
         users = []
+        if group(isinstance, Channel) and group.broadcast:
+            return users
 
         try:
             async for user in self.iter_participants(group, filter=ChannelParticipantsAdmins):
@@ -203,16 +210,17 @@ class Client(TelegramClient):
         stack_info: bool = False,
     ) -> None:
 
-        if isinstance(channel, str):
-            channel = await self.join_channel(channel) if join_channel else await self.get_input_entity(channel)
+        if isinstance(channel, str) and join_channel:
+            channel = await self.join_channel(channel)
 
         name_user =  self.get_display(user, 'CYAN')
         name_channel = self.get_display(channel, 'MAGENTA')
 
         try:
+            user = await self.resolve_user_entity(user)
 
             if isinstance(channel, Chat):
-                await self(messages.AddChatUserRequest(channel.id, user, fwd_limit))
+                await self(messages.AddChatUserRequest(self.get_id(channel, add_mask=False), user, fwd_limit))
             else:
                 await self(channels.InviteToChannelRequest(channel, [user]))
 
@@ -229,12 +237,12 @@ class Client(TelegramClient):
         try:
             if user.phone:
 
-                await self(contacts.ImportContactsRequest(InputPhoneContact(
+                await self(contacts.ImportContactsRequest([InputPhoneContact(
                     random.randrange(-2**63, 2**63),
                     user.phone,
                     user.first_name if user.first_name else '',
                     user.last_name if user.last_name else ''
-                )))
+                )]))
 
                 await self(contacts.SearchRequest(
                     q=user.phone,
@@ -270,23 +278,21 @@ class Client(TelegramClient):
             await sleep()
 
     async def resolve_username(self, username: str) -> User|None:
-        try:
-            result = await self(contacts.ResolveUsernameRequest(username))
-            return result.users[0]
-
-        except Exception as e:
-            self.logger.debug(f'Error in resolve_username: {e}')
+        result = await self(contacts.ResolveUsernameRequest(username))
+        return result.users[0]
 
     async def _resolve_user_entity(self, entity: User):
 
         try:
-            return await self._get_entity_from_string(entity.username)
+            if entity.username:
+                return await self.resolve_username(entity.username)
         except:
             pass
 
         try:
-            await self.add_contact(entity, raise_exceptions=True)
-            return await self._get_entity_from_string(entity.phone)
+            if entity.phone:
+                await self.add_contact(entity, raise_exceptions=True)
+                return await self._get_entity_from_string(entity.phone)
         except:
             pass
 
@@ -295,7 +301,7 @@ class Client(TelegramClient):
         except:
             pass
 
-    async def resolve_user_entity(self, entity: User, msg: str = 'oi') -> User|None:
+    async def resolve_user_entity(self, entity: User, msg: str = 'oi') -> User|InputPeerUser:
         if result := await self._resolve_user_entity(entity):
             return result
 
@@ -303,6 +309,9 @@ class Client(TelegramClient):
             await self.send_message(entity, msg)
         except:
             pass
+
+        raise ValueError(f"User entity don't resolved!")
+        
 
     async def view_message(self, chat_id: int|str|GroupType, msg_id: List[int]|int, increment: bool = True, raise_exceptions: bool = False):
         try:
@@ -348,8 +357,10 @@ class Client(TelegramClient):
             self.logger.error(f'Error in react_message: {e}')
 
 
-    async def get_full_entity(self, entity: Channel|Chat|User|str|int) -> ChatFull|ChannelFull|UserFull:
+    async def get_full_entity(self, entity: EntityLike) -> FullEntity:
 
+        if isinstance(entity, (int, str)):
+            entity = await self.get_input_entity(entity)
         if isinstance(entity, ChannelType):
             return (await self(channels.GetFullChannelRequest(entity))).full_chat
         elif isinstance(entity, ChannelType):
@@ -407,28 +418,53 @@ class Client(TelegramClient):
         return users
 
 
-    async def fetch_users_from_reply(self, channel: Channel, limit: int = 20, delay: int|float = None) -> List[User]:
+    async def fetch_users_from_reply(self, channel: Channel, message: int|Message) -> List[User]:
+        def check_replies(message):
+            return all ([
+                channel.broadcast,
+                hasattr(message, 'replies'),
+                message.replies,
+                message.replies.replies > 0
+            ])
+
+        if isinstance(message, Message):
+            if not check_replies(message):
+                return []
+            message_id = message.id
+        else:
+            message_id = message
+
+        reply = await self(messages.GetRepliesRequest(
+            peer=channel,
+            msg_id=message_id,
+            offset_id=0,  
+            offset_date=None,
+            add_offset=0,
+            limit=100,  
+            max_id=0,
+            min_id=0,
+            hash=0                            
+        ))
+        return reply.users
+
+    async def fetch_users_from_messages(self, group: Channel|Chat, limit: int = 20, delay: int|float = None, **kwargs) -> List[User]:
         users = {}
 
-        async for message in self.iter_messages(channel, limit=limit):
-            if hasattr(message, 'replies') and message.replies and message.replies.replies > 0:
-                reply = await self(messages.GetRepliesRequest(
-                    peer=channel,
-                    msg_id=message.id,
-                    offset_id=0,  
-                    offset_date=None,
-                    add_offset=0,
-                    limit=100,  
-                    max_id=0,
-                    min_id=0,
-                    hash=0                            
-                ))
-                for user in reply.users:
-                    users[user.id] = user
+        if not isinstance(group, GroupEntity):
+            group = await self.get_entity(group)
+        broadcast = isinstance(group, Channel) and group.broadcast
 
+        async for message in self.iter_messages(group, limit=limit, **kwargs):
+            if broadcast:
+                for user in (await self.fetch_users_from_reply(group, message)):
+                    users[user.id] = user
                 await self.sleep(delay)
 
-        return list (users.values())
+            else:
+                if user := await message.get_sender():
+                    users[user.id] = user
+
+        return list(filter(lambda u: isinstance(u, User), users.values()))
 
     async def fetch_all_participans(self, channel: Channel, delay: int|float = None) -> List[User]:
         pattern = re.compile(r"\b[a-zA-Z]")
@@ -568,20 +604,21 @@ class Client(TelegramClient):
         except Exception as e:
             self.logger.error(f'Error in join_chat {e}')    
 
-    async def join_channel(self, link: str) -> GroupType|None:
+
+    async def join_channel(self, link: str) -> Channel|Chat|None:
         """Join channel or chat. Return entity or None"""
         
         try:
             try:
-                entity = await self.get_input_entity(link)
+                peer = await self.get_input_entity(link)
             except:
-                entity = ''
+                peer = ''
 
-            info_group, retry = self.check_joined(entity, link)
+            info_group, retry = self.check_joined(peer, link)
 
             if info_group:
-                self.logger.debug(f'client already part of group {self.get_display(entity)}!')
-                return entity
+                self.logger.debug(f'client already part of group {self.get_display(peer)}!')
+                return await self.get_entity(peer)
 
             if not info_group and retry:
                 self.logger.debug(f'Error in join_channel {link}')
@@ -600,7 +637,7 @@ class Client(TelegramClient):
 
         except Exception as e:
             self.logger.error(f'Error in join_channel {e}')
-            self.add_error_join_group(entity, link)
+            self.add_error_join_group(peer, link)
 
     async def join_group(self, link: str) -> Channel|Chat|None:
         return await self.join_channel(link)
@@ -610,9 +647,9 @@ class Client(TelegramClient):
         return colour(text, color)
 
     @staticmethod
-    def get_id(entity) -> int:
+    def get_id(entity, add_mask=True) -> int:
         try:
-            peer_id = utils.get_peer_id(entity)
+            peer_id = utils.get_peer_id(entity, add_mask)
             return peer_id if peer_id else 0
         except:
             return 0
@@ -686,12 +723,16 @@ class Client(TelegramClient):
         c.close()
         return result
 
-    def execute_query(self, query: str, data: Tuple = ()) -> None:
+    def execute_query(self, query: str, data: Tuple|None = None) -> None:
         c = self.session._cursor()
         try:
-            c.execute(query, data)
+            if data:
+                c.execute(query, data)
+            else:
+                c.execute(query)
         except Exception as e:
-            print(e)
+            self.logger.debug(f'Error in execute_query: {e}')
+
         self.session.save()
         c.close()
 
