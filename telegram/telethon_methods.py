@@ -132,16 +132,6 @@ async def run_app(
     await asyncio.gather(*tasks, return_exceptions=True)
 
     
-def get_emoji(channel_full_info, fallback_emojis: List[str] = []):
-    try:
-        reactions = channel_full_info.full_chat.available_reactions.reactions
-        emojis = [react.emoticon for react in reactions if (not fallback_emojis or react.emoticon in fallback_emojis)]
-        if emojis:
-            return random.choice(emojis).strip()
-    except Exception as e:
-        if fallback_emojis:
-            return random.choice(fallback_emojis).strip()
-        raise e
 
 
 

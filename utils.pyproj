@@ -12,6 +12,7 @@
     <Name>utils</Name>
     <RootNamespace>utils</RootNamespace>
     <InterpreterId>MSBuild|env|$(MSBuildProjectFullPath)</InterpreterId>
+    <SuppressPackageInstallationPrompt>True</SuppressPackageInstallationPrompt>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -22,6 +23,9 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="files\io.py" />
+    <Compile Include="files\paths.py" />
+    <Compile Include="files\photos.py" />
     <Compile Include="files\__init__.py">
       <SubType>Code</SubType>
     </Compile>
@@ -35,6 +39,7 @@
     <Compile Include="loggers\filters.py" />
     <Compile Include="loggers\handles.py" />
     <Compile Include="loggers\loggers.py" />
+    <Compile Include="miscellaneous\encoding.py" />
     <Compile Include="miscellaneous\filters.py" />
     <Compile Include="miscellaneous\stream.py" />
     <Compile Include="miscellaneous\__init__.py" />
