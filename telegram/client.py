@@ -579,17 +579,16 @@ class Client(TelegramClient):
             msg = msg[0].text
 
             if any (text in msg for text in spamtext):
-                self.logger.debug(f'Client is not a spambot')
+                self.logger.debug(f'Client is good')
                 return False, None
 
-                     
             if matches := datepattern.findall(msg):
                 for match in matches:
                     date_limitation = datetime.strptime(match, '%d %b %Y, %H:%M %Z')
                     self.logger.debug(f'Client is a spambot until {date_limitation}')
                     return True, date_limitation
 
-            return False, None
+            return True, None
 
         except Exception as e:
             if 'blocked this user' in str(e).lower():
@@ -742,10 +741,8 @@ class Client(TelegramClient):
 
         if chat_id := self.get_id(chat_id, add_mask):
             return chat_id
-
-        else:
-            ValueError(f"Unable to resolve sender ID from TypeUpdates object: {chat_id}")
-
+        raise ValueError(f"Unable to resolve sender ID from TypeUpdates object: {chat_id}")
+            
 
     def get_display(self, entity, color: str = 'LM') -> str:
 

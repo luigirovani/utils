@@ -50,6 +50,7 @@
     <Compile Include="telegram\telethon_methods.py" />
     <Compile Include="telegram\telethon_utils.py" />
     <Compile Include="telegram\types.py" />
+    <Compile Include="telegram\utils.py" />
     <Compile Include="telegram\__init__.py" />
     <Compile Include="__init__.py" />
   </ItemGroup>

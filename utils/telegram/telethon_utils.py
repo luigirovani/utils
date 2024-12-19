@@ -16,6 +16,16 @@ VALID_USERNAME_RE = re.compile(
 
 VALID_PHONE = re.compile(r'[+()\s-]')
 
+def get_display_name(entity) -> str:
+    if hasattr(entity, 'first_name'):
+        return entity.first_name + (' ' + entity.last_name or '')
+
+    elif hasattr(entity, 'title'):
+        return entity.title
+
+    else:
+        return ''
+
 def parse_phone(phone: Union[str, int]) -> Optional[str]:
     if isinstance(phone, int):
         return str(phone)

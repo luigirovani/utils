@@ -7,27 +7,27 @@ import re
 import string
 from pathlib import Path
 from logging import getLogger, Logger
-from typing import Any, Callable, List, Tuple, Dict
+from functools import partialmethod
+from typing import Any, Callable, List, Tuple, Dict, Awaitable
 from datetime import datetime
 
-from networkx import is_isolate
-from telethon import TelegramClient, utils, errors, types as telethon_types
-from telethon.tl.functions import channels, contacts, messages
+from telethon import TelegramClient, utils, errors, events, types as telethon_types
+from telethon.tl.functions import channels, contacts, messages, account
 from telethon.tl.functions.phone import GetGroupParticipantsRequest, GetGroupCallRequest
 from telethon.tl.functions.users import GetFullUserRequest
 
 from telethon.tl.types import (
     InputPhoneContact, ChannelParticipantsAdmins, 
     InputGroupCall, GroupCall,
-    User, Channel, Chat,
-    ChannelFull, ChatFull, UserFull,
-    InputPeerUser
+    User, Channel, Chat, Message, TypeUpdate,
+    InputPeerUser, UpdateNewMessage
 )
 
 
 from telethon.errors import FloodWaitError, PeerFloodError, AuthKeyDuplicatedError, PhoneNumberBannedError as PhoneNumberBanned
 
 from ..miscellaneous import sleep, convert_iter
+from ..miscellaneous.encoding import normalize_to_ascii as unidecode
 from ..loggers.colourprinter import colourprinter as colour
 from ..loggers.loggers import getChilder
 from .exceptions import *
@@ -37,7 +37,8 @@ from.telethon_utils import parse_phone, clean_phone, clean_session
 _base_loger = getLogger('Telegram')
 DELAY = os.getenv('CLIENT_DELAY', 0.5)
 DEFAULT_TIMEOUT_CONNECT = os.getenv('DEFAULT_TIMEOUT_CONNECT', 10)
-
+API_CODE_PATTERN = r"(?:login code|de login):\s*([\w\-]+)"
+LOGIN_CODE_PATTERN = r"\b\d{5}\b"
 
 class Client(TelegramClient):
 
@@ -361,6 +362,8 @@ class Client(TelegramClient):
 
         if isinstance(entity, (int, str)):
             entity = await self.get_input_entity(entity)
+        if isinstance(entity, FullEntity):
+            return entity
         if isinstance(entity, ChannelType):
             return (await self(channels.GetFullChannelRequest(entity))).full_chat
         elif isinstance(entity, ChannelType):
@@ -381,6 +384,20 @@ class Client(TelegramClient):
             call = full_chat.call
             call.active = not bool(result.call.schedule_date)
             return call
+
+    async def get_emojis(self, group: GroupType) -> List[str]:
+        return [react.emoticon for react in (await self.get_full_entity(group)).available_reactions]
+
+    async def get_emoji(self, group: GroupType, fallback_emojis: List[str] = []):
+
+        try:
+            emojis = [react for react in (await self.get_emojis(group)) if (not fallback_emojis or react in fallback_emojis)]
+            if emojis:
+                return random.choice(emojis).strip()
+        except Exception as e:
+            if fallback_emojis:
+                return random.choice(fallback_emojis).strip()
+            raise e
 
     async def fetch_participants_from_call(
         self,
@@ -417,6 +434,60 @@ class Client(TelegramClient):
         self.logger.info(f'Fetched {len(users)} participants from {self.get_display(group)}')
         return users
 
+    async def update_username(self, username: str = None, force: bool = False) -> str:
+        me = await self.client.get_me()
+        if me.username and not force:
+            self.logger.debug(f'{self.name} ja possui username: {me.username}')
+            return me.username
+        
+        if not username:
+            base = unidecode(self.name.lower().replace(" ", "")[:24])
+            random_str  = ''.join(random.choices(string.digits, k=5))
+            username = base + random_str
+            
+        try:
+            await self.client(account.UpdateUsernameRequest(username))
+        except Exception as e:
+            self.logger.debug(f'Error in change username to {self.name} | {username} : {e}')
+            return ''
+        else:
+            self.logger.debug(f' Sucess change username for {self.name} | {username}')
+            return username
+
+    async def response_callback(self, event:UpdateNewMessage, done_event=None, result=None):
+        result.append(event.message)
+        done_event.set()
+
+    async def get_response_msg(
+        self, 
+        chat_id: int|Message|TypeUpdate|Entity,
+        func: Callable[[Message], bool]|Awaitable[Message, bool]|None = None, 
+        regex: str|None = None,
+        timeout: int = 300
+    ) -> Message|None:
+
+        done_event= asyncio.Event()
+        result=[]
+        callback = partialmethod(self.response_callback, done_event=done_event, result=result)
+        event = events.NewMessage([chat_id], incoming=True, func=func, pattern=regex)
+        self.add_event_handler(callback, event)
+
+        try:
+            await asyncio.wait_for(done_event.wait(), timeout)
+            return result[0]
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            self.remove_event_handler(callback)
+
+    async def ask_msg(self, chat_id: int|Message|TypeUpdate|Entity, question: str, timeout: int = 300, **kwargs) -> Message|None:
+        message = await self.send_message(chat_id, question, **kwargs)
+        return await self.get_response_msg(chat_id, timeout=timeout)
+
+    async def get_code(self, api = False, timeout = 300, bot_id = 777000) -> str:
+        pattern = API_CODE_PATTERN if api else LOGIN_CODE_PATTERN
+        if message := await self.get_response_msg(bot_id, regex=pattern, timeout=timeout):
+            return re.search(message.text).group(0)
 
     async def fetch_users_from_reply(self, channel: Channel, message: int|Message) -> List[User]:
         def check_replies(message):
@@ -653,6 +724,26 @@ class Client(TelegramClient):
             return peer_id if peer_id else 0
         except:
             return 0
+
+    async def get_chat_id(self, chat_id, add_mask=False) -> int|None:
+        if isinstance(chat_id, int):
+            pass
+        elif isinstance(chat_id, Message):
+            chat_id = chat_id.from_id
+        elif hasattr(chat_id, 'get_sender'):
+            chat_id = await (await chat_id.get_sender()).id
+        elif hasattr(chat_id, 'get_input_chat'):
+            chat_id = await (await chat_id.get_input_chat())
+        else:
+            try:
+                chat_id = await self.get_input_entity(chat_id)
+            except:
+                pass
+
+        if chat_id := self.get_id(chat_id, add_mask):
+            return chat_id
+        raise ValueError(f"Unable to resolve sender ID from TypeUpdates object: {chat_id}")
+            
 
     def get_display(self, entity, color: str = 'LM') -> str:
 

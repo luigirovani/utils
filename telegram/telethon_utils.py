@@ -1,6 +1,7 @@
 import re
 from typing import Union, Optional
 from pathlib import Path
+from .utils import get_display_name, parse_phone
 
 USERNAME_RE = re.compile(
     r'@|(?:https?://)?(?:www\.)?(?:telegram\.(?:me|dog)|t\.me)/(@|\+|joinchat/)?'
@@ -13,26 +14,6 @@ VALID_USERNAME_RE = re.compile(
     r'^[a-z](?:(?!__)\w){1,30}[a-z\d]$',
     re.IGNORECASE
 )
-
-VALID_PHONE = re.compile(r'[+()\s-]')
-
-def get_display_name(entity) -> str:
-    if hasattr(entity, 'first_name'):
-        return entity.first_name + (' ' + entity.last_name or '')
-
-    elif hasattr(entity, 'title'):
-        return entity.title
-
-    else:
-        return ''
-
-def parse_phone(phone: Union[str, int]) -> Optional[str]:
-    if isinstance(phone, int):
-        return str(phone)
-    else:
-        phone = VALID_PHONE.sub('', str(phone))
-        if phone.isdigit():
-            return phone
 
 def clean_phone(phone: Union[str, int, Path]) -> str:
     """
