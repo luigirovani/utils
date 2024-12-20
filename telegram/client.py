@@ -487,7 +487,7 @@ class Client(TelegramClient):
         except asyncio.TimeoutError:
             return None
         finally:
-            self.remove_event_handler(callback)
+            self.remove_event_handler(callback, event)
 
     async def ask_msg(self, chat_id: int|Message|TypeUpdate|Entity, question: str, timeout: int = 300, **kwargs) -> Message|None:
         message: Message = await self.send_message(chat_id, question, **kwargs)
