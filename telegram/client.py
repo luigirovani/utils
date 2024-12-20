@@ -8,7 +8,7 @@ import string
 from pathlib import Path
 from logging import getLogger, Logger
 from functools import partialmethod
-from typing import Any, Callable, List, Tuple, Dict, Awaitable
+from typing import Any, Callable, Iterable, List, Tuple, Dict, Awaitable
 from datetime import datetime
 
 from telethon import TelegramClient, utils, errors, events, types as telethon_types
@@ -498,25 +498,10 @@ class Client(TelegramClient):
         if message := await self.get_response_msg(bot_id, regex=pattern, timeout=timeout):
             return re.search(message.text).group(0)
 
-    async def fetch_users_from_reply(self, channel: Channel, message: int|Message) -> List[User]:
-        def check_replies(message):
-            return all ([
-                channel.broadcast,
-                hasattr(message, 'replies'),
-                message.replies,
-                message.replies.replies > 0
-            ])
-
-        if isinstance(message, Message):
-            if not check_replies(message):
-                return []
-            message_id = message.id
-        else:
-            message_id = message
-
+    async def fetch_users_from_reply(self, channel: Channel|int|str, message: int|Message) -> List[User]:
         reply = await self(messages.GetRepliesRequest(
             peer=channel,
-            msg_id=message_id,
+            msg_id=message.id if isinstance(message, Message) else message,
             offset_id=0,  
             offset_date=None,
             add_offset=0,
@@ -527,24 +512,30 @@ class Client(TelegramClient):
         ))
         return reply.users
 
-    async def fetch_users_from_messages(self, group: Channel|Chat, limit: int = 20, delay: int|float = None, **kwargs) -> List[User]:
-        users = {}
+    async def fetch_users_from_message(self, message: int|Message, group: Channel|Chat|None, delay: int|float = 0) -> List[User]:
+        def check_replies(message):
+            return all ([
+                isinstance(group, Channel) and group.broadcast,
+                hasattr(message, 'replies'),
+                message.replies,
+                message.replies.replies > 0
+            ])
 
+        if isinstance(message, Message):
+            if not check_replies(message):
+                return self.filter_users(await message.get_sender())
+
+        await self.sleep(delay)
+        return await self.fetch_users_from_reply(group, message)
+
+    async def fetch_users_from_messages(self, group: Channel|Chat, limit: int = 20, delay: int|float = None, **kwargs) -> List[User]:
         if not isinstance(group, GroupEntity):
             group = await self.get_entity(group)
-        broadcast = isinstance(group, Channel) and group.broadcast
 
         async for message in self.iter_messages(group, limit=limit, **kwargs):
-            if broadcast:
-                for user in (await self.fetch_users_from_reply(group, message)):
-                    users[user.id] = user
-                await self.sleep(delay)
+            users += (await self.fetch_users_from_message(message, group, delay))
 
-            else:
-                if user := await message.get_sender():
-                    users[user.id] = user
-
-        return list(filter(lambda u: isinstance(u, User) and not u.bot, users.values()))
+        return self.filter_users(users)
 
     async def fetch_all_participans(self, channel: Channel, delay: int|float = None) -> List[User]:
         pattern = re.compile(r"\b[a-zA-Z]")
@@ -571,7 +562,7 @@ class Client(TelegramClient):
                 offset += len(participants.users)
                 await self.sleep(delay)
 
-        return users
+        return self.filter_users(users)
 
     async def check_spambot(self) -> Tuple[bool, datetime|None]:
         spambot = 'SpamBot'
@@ -774,6 +765,15 @@ class Client(TelegramClient):
                 display_name = ''
 
         return colour(display_name, color)
+
+    @staticmethod
+    def filter_users(users: Iterable[User], filter=None) -> List[User]:
+        filter = filter or (lambda user: True)
+        return list({
+            user.id: user
+            for user in convert_iter(users)
+            if user if isinstance(user, User) and not user.bot and filter(user)
+        }.values())
 
     @staticmethod
     def parse_phone(phone: str|int) -> str:

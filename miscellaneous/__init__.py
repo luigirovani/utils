@@ -13,10 +13,12 @@ DELAY = float (os.getenv('DELAY', 1))
 DELAY_FACTOR = int(os.getenv('DELAY_FACTOR', 10))
 
 async def sleep(delay: float|int = DELAY, factor: int = DELAY_FACTOR) -> None:
-    await asyncio.sleep(random.uniform(
-        delay/factor, 
-        delay*2
-    ))
+    """ Sleeps for a random amount of time between `delay/factor` and `delay*2` seconds."""
+    if delay > 0:
+        await asyncio.sleep(random.uniform(
+            delay/factor, 
+            delay*2
+        ))
 
 def is_list_like(obj: Any) -> bool:
     """ Returns `True` if the given object looks like a list-like objects."""
