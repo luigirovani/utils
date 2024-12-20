@@ -4,6 +4,7 @@ from pathlib import Path
 import random
 from typing import Callable, Any, Union, Tuple, List
 from logging import Logger, getLogger
+from venv import logger
 
 from.sessions import get_sessions_phones
 from.client import Client, DELAY
@@ -22,6 +23,7 @@ async def run_client(
     base_logger: Logger = _base_loger,
     delay: float = DELAY,
     receive_updates: bool = False,
+    cancelled_event=None,
     **keyargs: Any
 ) -> None:
     """
@@ -36,18 +38,17 @@ async def run_client(
         base_logger (Any): The base logger for logging.
         delay (float): The delay in seconds before connecting.
         receive_updates (bool): Whether to receive updates in the session.
-        **keyargs (Any): Additional arguments for the Telegram client.
+        **keyargs (Any): Additional arguments for the callback client.
 
     Returns:
         None
     """
 
     try:
-        async with Client(session, api_id, api_hash, base_logger, delay, receive_updates=receive_updates, **keyargs) as client:
-            await client.run_callback(callback)
+        async with Client(session, api_id, api_hash, base_logger, delay, receive_updates=receive_updates, cancelled_event=cancelled_event **keyargs) as client:
+            await callback(client)
 
     except (KeyboardInterrupt, asyncio.CancelledError):
-        base_logger.critical(f'Shut Down app...')
         raise 
 
     except Exception as e:
@@ -115,6 +116,7 @@ async def run_app(
         sessions = sessions[:limit_sessions]
 
     sem = asyncio.Semaphore(max_tasks)
+    cancelled_event = asyncio.get_event_loop().create_future()
     tasks = []
 
     for phone, session in sessions:
@@ -125,12 +127,31 @@ async def run_app(
             session=session, phone=phone,
             api_id=api_choice[0], api_hash=api_choice[1], 
             callback=callback, base_logger=base_logger,
-            delay=delay, 
+            delay=delay, cancelled_event=cancelled_event,
             receive_updates=receive_updates, **keyargs
         )))
 
-    await asyncio.gather(*tasks, return_exceptions=True)
+    task = asyncio.gather(*tasks, return_exceptions=True)
 
+    def on_task_done(finished_task: asyncio.Future):
+        if not task.done():
+            task.cancel()
+
+        if finished_task.done():
+            try:
+                if result := finished_task.result():
+                    base_logger.info(f'{callback.__name__} Finished: {result}')
+            except asyncio.CancelledError:
+                base_logger.warning(f'{callback.__name__} Cancelled')
+                pass
+            except Exception as e:
+                base_logger.critical(f'{callback.__name__} Error : {e}')
+
+    cancelled_event.add_done_callback(on_task_done)
+    await task
+    if not cancelled_event.done():
+        cancelled_event.set_result('')
+    await cancelled_event
     
 
 

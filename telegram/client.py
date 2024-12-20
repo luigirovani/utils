@@ -52,6 +52,7 @@ class Client(TelegramClient):
         receive_updates: bool = False,
         limit_spam_flood: int = 5,
         parse_session : bool = True,
+        cancelled_event: asyncio.Future = None,
         **kwargs: Any
     ):
         session_path = clean_session(session) if parse_session else Path(session)
@@ -60,6 +61,7 @@ class Client(TelegramClient):
         self.delay = delay
         self.flood_count = 0
         self.limit_spam_flood = limit_spam_flood
+        self.cancelled_event = cancelled_event
         self.logger = getChilder(self.phone, base_logger)
 
         try:
@@ -132,7 +134,7 @@ class Client(TelegramClient):
             try:
                 self.session.close()
             except Exception as e:
-                self.logger.debug(f'Error in close session: {e}')
+                pass
 
     async def disconnect(self, ensure_close=False):
         return asyncio.shield(self.loop.create_task(self.disconnect_close(ensure_close)))
@@ -149,6 +151,14 @@ class Client(TelegramClient):
             raise e
         except Exception as e:
             self.logger.error(f'Error in run {c_name}: {e}')
+
+    def kill_app(self, result: str = None, e: Exception = None):
+        if e:
+            self.loop.call_soon(self.cancelled_event.set_exception, e)
+        elif result:
+            self.loop.call_soon(self.cancelled_event.set_result, result)
+        else:
+            raise ValueError('No result or exception to set in cancelled_event')
 
     async def handle_exception(self, e: Exception) -> bool:
 
@@ -218,8 +228,6 @@ class Client(TelegramClient):
         name_channel = self.get_display(channel, 'MAGENTA')
 
         try:
-            user = await self.resolve_user_entity(user)
-
             if isinstance(channel, Chat):
                 await self(messages.AddChatUserRequest(self.get_id(channel, add_mask=False), user, fwd_limit))
             else:
@@ -302,12 +310,13 @@ class Client(TelegramClient):
         except:
             pass
 
-    async def resolve_user_entity(self, entity: User, msg: str = 'oi') -> User|InputPeerUser:
+    async def resolve_user_entity(self, entity: User, msg: str|None = 'oi') -> User|InputPeerUser:
         if result := await self._resolve_user_entity(entity):
             return result
 
         try:
-            await self.send_message(entity, msg)
+            if msg:
+                await self.send_message(entity, msg)
         except:
             pass
 
@@ -461,7 +470,7 @@ class Client(TelegramClient):
     async def get_response_msg(
         self, 
         chat_id: int|Message|TypeUpdate|Entity,
-        func: Callable[[Message], bool]|Awaitable[Message, bool]|None = None, 
+        func: Callable[[Message], bool]|None = None, 
         regex: str|None = None,
         timeout: int = 300
     ) -> Message|None:
@@ -481,7 +490,7 @@ class Client(TelegramClient):
             self.remove_event_handler(callback)
 
     async def ask_msg(self, chat_id: int|Message|TypeUpdate|Entity, question: str, timeout: int = 300, **kwargs) -> Message|None:
-        message = await self.send_message(chat_id, question, **kwargs)
+        message: Message = await self.send_message(chat_id, question, **kwargs)
         return await self.get_response_msg(chat_id, timeout=timeout)
 
     async def get_code(self, api = False, timeout = 300, bot_id = 777000) -> str:
@@ -535,7 +544,7 @@ class Client(TelegramClient):
                 if user := await message.get_sender():
                     users[user.id] = user
 
-        return list(filter(lambda u: isinstance(u, User), users.values()))
+        return list(filter(lambda u: isinstance(u, User) and not u.bot, users.values()))
 
     async def fetch_all_participans(self, channel: Channel, delay: int|float = None) -> List[User]:
         pattern = re.compile(r"\b[a-zA-Z]")
@@ -585,7 +594,7 @@ class Client(TelegramClient):
             if matches := datepattern.findall(msg):
                 for match in matches:
                     date_limitation = datetime.strptime(match, '%d %b %Y, %H:%M %Z')
-                    self.logger.debug(f'Client is a spambot until {date_limitation}')
+                    self.logger.debug(f'Client is a spam until {date_limitation}')
                     return True, date_limitation
 
             return True, None
@@ -595,11 +604,11 @@ class Client(TelegramClient):
                 self.logger.debug(f'Client blocked spambot\n Try again ')
                 return False, None
             self.logger.error(f'Error in check_spambot: {e}')
+            return True, None
 
     async def leave_channels(self, limit: int = 5):
         count = 1
         self.logger.debug(f'Leaving channels...')
-        joined_groups = [int(group[0]) for group in self.get_joined_groups()]
 
         async for dialog in self.iter_dialogs():
             try:

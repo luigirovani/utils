@@ -42,6 +42,7 @@
     <Compile Include="miscellaneous\encoding.py" />
     <Compile Include="miscellaneous\filters.py" />
     <Compile Include="miscellaneous\stream.py" />
+    <Compile Include="miscellaneous\windows.py" />
     <Compile Include="miscellaneous\__init__.py" />
     <Compile Include="setup.py" />
     <Compile Include="telegram\client.py" />
