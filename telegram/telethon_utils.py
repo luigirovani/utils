@@ -1,7 +1,7 @@
 import re
 from typing import Union, Optional
 from pathlib import Path
-from .utils import get_display_name, parse_phone
+from..miscellaneous.parses import parse_nuns, parse_phone
 
 USERNAME_RE = re.compile(
     r'@|(?:https?://)?(?:www\.)?(?:telegram\.(?:me|dog)|t\.me)/(@|\+|joinchat/)?'
@@ -14,6 +14,23 @@ VALID_USERNAME_RE = re.compile(
     r'^[a-z](?:(?!__)\w){1,30}[a-z\d]$',
     re.IGNORECASE
 )
+
+
+def get_display_name(entity) -> str:
+    try:
+        first_name = entity.first_name + ' ' if entity.first_name else ''
+        last_name = entity.last_name if  entity.last_name else ''
+        return first_name + last_name
+    except:
+        pass
+
+    try:
+        return entity.title
+    except:
+        pass
+
+    return ''
+
 
 def clean_phone(phone: Union[str, int, Path]) -> str:
     """
@@ -32,7 +49,7 @@ def clean_phone(phone: Union[str, int, Path]) -> str:
     if isinstance(phone, Path):
         phone = phone.stem
 
-    return ''.join(char for char in phone if char.isdigit())
+    return re.sub(r'[^0-9]', '', str(phone))
 
 def clean_session(session: Union[str, Path]) -> Path:
     """
@@ -47,10 +64,10 @@ def clean_session(session: Union[str, Path]) -> Path:
     path = Path(session)
     new_path = path.with_name(clean_phone(path.stem) + '.session')
 
-    if path != new_path and path.exists():
+    if str(path) != str(new_path) and path.exists():
         try:
             path.rename(new_path.absolute())
-        except Exception as e:
+        except:
             return path
 
     return new_path

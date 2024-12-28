@@ -4,7 +4,6 @@ from pathlib import Path
 import random
 from typing import Callable, Any, Union, Tuple, List
 from logging import Logger, getLogger
-from venv import logger
 
 from.sessions import get_sessions_phones
 from.client import Client, DELAY
@@ -45,7 +44,7 @@ async def run_client(
     """
 
     try:
-        async with Client(session, api_id, api_hash, base_logger, delay, receive_updates=receive_updates, cancelled_event=cancelled_event **keyargs) as client:
+        async with Client(session, api_id, api_hash, base_logger, delay, receive_updates=receive_updates, cancelled_event=cancelled_event, **keyargs) as client:
             await callback(client)
 
     except (KeyboardInterrupt, asyncio.CancelledError):

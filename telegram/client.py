@@ -510,23 +510,22 @@ class Client(TelegramClient):
             min_id=0,
             hash=0                            
         ))
-        return reply.users
+        return self.filter_users(reply.users)
 
     async def fetch_users_from_message(self, message: int|Message, group: Channel|Chat|None, delay: int|float = 0) -> List[User]:
-        def check_replies(message):
-            return all ([
-                isinstance(group, Channel) and group.broadcast,
-                hasattr(message, 'replies'),
-                message.replies,
-                message.replies.replies > 0
-            ])
+        def check_replies():
+            return message.replies and message.replies.replies > 0
+
+        if isinstance(group, Channel) and group.broadcast:
+            if check_replies():
+                await self.sleep(delay)
+                return await self.fetch_users_from_reply(group, message)
+            return []
 
         if isinstance(message, Message):
-            if not check_replies(message):
-                return self.filter_users(await message.get_sender())
-
-        await self.sleep(delay)
-        return await self.fetch_users_from_reply(group, message)
+            return self.filter_users(message.sender)
+        
+        return []
 
     async def fetch_users_from_messages(self, group: Channel|Chat, limit: int = 20, delay: int|float = None, **kwargs) -> List[User]:
         if not isinstance(group, GroupEntity):
@@ -606,7 +605,8 @@ class Client(TelegramClient):
                 if not dialog.is_channel:
                     continue
                 
-                if self.check_joined(dialog.entity, dialog.entity.username)[0]:
+                j, r = self.check_joined(dialog.entity, dialog.entity.username)[0]
+                if not j and not r:
                     continue
 
                 count+=1
@@ -764,7 +764,7 @@ class Client(TelegramClient):
             else:
                 display_name = ''
 
-        return colour(display_name, color)
+        return colour(display_name if display_name else '', color)
 
     @staticmethod
     def filter_users(users: Iterable[User], filter=None) -> List[User]:
@@ -918,7 +918,7 @@ class Client(TelegramClient):
             query = """
                 INSERT INTO groups (link, joined)
                 VALUES (?, ?)
-                ON CONFLICT(link) DO UPDATE SET
+                ON CONFLICT (link) DO UPDATE SET
                     joined = excluded.joined
             """
             data = (link, 1)
