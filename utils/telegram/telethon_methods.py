@@ -1,4 +1,3 @@
-from ast import Tuple
 import asyncio
 from pathlib import Path
 import random
@@ -7,7 +6,7 @@ from logging import Logger, getLogger
 
 from.sessions import get_sessions_phones
 from.client import Client, DELAY
-from..miscellaneous import sleep, is_list_like
+from..miscellaneous import sleep, is_list_like, Runner
 from..files import read_csv
 
 _base_loger = getLogger('Telegram')
@@ -22,6 +21,7 @@ async def run_client(
     base_logger: Logger = _base_loger,
     delay: float = DELAY,
     receive_updates: bool = False,
+    cancelled_event=None,
     **keyargs: Any
 ) -> None:
     """
@@ -36,18 +36,17 @@ async def run_client(
         base_logger (Any): The base logger for logging.
         delay (float): The delay in seconds before connecting.
         receive_updates (bool): Whether to receive updates in the session.
-        **keyargs (Any): Additional arguments for the Telegram client.
+        **keyargs (Any): Additional arguments for the callback client.
 
     Returns:
         None
     """
 
     try:
-        async with Client(session, api_id, api_hash, base_logger, delay, receive_updates=receive_updates, **keyargs) as client:
-            await client.run_callback(callback)
+        async with Client(session, api_id, api_hash, base_logger, delay, receive_updates=receive_updates, cancelled_event=cancelled_event, **keyargs) as client:
+            await callback(client)
 
     except (KeyboardInterrupt, asyncio.CancelledError):
-        base_logger.critical(f'Shut Down app...')
         raise 
 
     except Exception as e:
@@ -114,24 +113,20 @@ async def run_app(
     if limit_sessions:
         sessions = sessions[:limit_sessions]
 
-    sem = asyncio.Semaphore(max_tasks)
-    tasks = []
+    runner = Runner(name='app', logger=base_logger, max_tasks=max_tasks, delay=delay_task)
 
     for phone, session in sessions:
         api_choice = random.choice(apis)
 
-        tasks.append(asyncio.create_task(run_task(
-            run_client, sem, delay_task,
+        runner.push(run_client(
             session=session, phone=phone,
             api_id=api_choice[0], api_hash=api_choice[1], 
             callback=callback, base_logger=base_logger,
-            delay=delay, 
+            delay=delay, cancelled_event=runner,
             receive_updates=receive_updates, **keyargs
-        )))
+        ))
 
-    await asyncio.gather(*tasks, return_exceptions=True)
-
-    
+    await runner
 
 
 

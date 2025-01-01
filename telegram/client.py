@@ -27,6 +27,7 @@ from telethon.tl.types import (
 from telethon.errors import FloodWaitError, PeerFloodError, AuthKeyDuplicatedError, PhoneNumberBannedError as PhoneNumberBanned
 
 from ..miscellaneous import sleep, convert_iter
+from ..miscellaneous import Runner
 from ..miscellaneous.encoding import normalize_to_ascii as unidecode
 from ..loggers.colourprinter import colourprinter as colour
 from ..loggers.loggers import getChilder
@@ -52,7 +53,7 @@ class Client(TelegramClient):
         receive_updates: bool = False,
         limit_spam_flood: int = 5,
         parse_session : bool = True,
-        cancelled_event: asyncio.Future = None,
+        cancelled_event: Runner = None,
         **kwargs: Any
     ):
         session_path = clean_session(session) if parse_session else Path(session)
@@ -153,12 +154,7 @@ class Client(TelegramClient):
             self.logger.error(f'Error in run {c_name}: {e}')
 
     def kill_app(self, result: str = None, e: Exception = None):
-        if e:
-            self.loop.call_soon(self.cancelled_event.set_exception, e)
-        elif result:
-            self.loop.call_soon(self.cancelled_event.set_result, result)
-        else:
-            raise ValueError('No result or exception to set in cancelled_event')
+        self.cancelled_event.finish(result, e)
 
     async def handle_exception(self, e: Exception) -> bool:
 
@@ -192,7 +188,7 @@ class Client(TelegramClient):
 
     async def fetch_admins(self, group: Channel|Chat, ids: bool = True) -> List[User|int]:
         users = []
-        if group(isinstance, Channel) and group.broadcast:
+        if isinstance(group, Channel) and group.broadcast:
             return users
 
         try:
@@ -498,19 +494,28 @@ class Client(TelegramClient):
         if message := await self.get_response_msg(bot_id, regex=pattern, timeout=timeout):
             return re.search(message.text).group(0)
 
-    async def fetch_users_from_reply(self, channel: Channel|int|str, message: int|Message) -> List[User]:
-        reply = await self(messages.GetRepliesRequest(
-            peer=channel,
-            msg_id=message.id if isinstance(message, Message) else message,
-            offset_id=0,  
-            offset_date=None,
-            add_offset=0,
-            limit=100,  
-            max_id=0,
-            min_id=0,
-            hash=0                            
-        ))
-        return self.filter_users(reply.users)
+    async def fetch_users_from_reply(self, channel: Channel|int|str, message: Message) -> List[User]:
+        offset = 0
+        users = []
+        while offset < message.replies.replies:
+            reply = await self(messages.GetRepliesRequest(
+                peer=channel,
+                msg_id=message.id,
+                offset_id=0,  
+                offset_date=None,
+                add_offset=offset,
+                limit=100,  
+                max_id=0,
+                min_id=0,
+                hash=0                            
+            ))
+            users += reply.users
+            offset += len(reply.messages)
+            await self.sleep()
+            if not reply.messages:
+                break
+
+        return self.filter_users(users)
 
     async def fetch_users_from_message(self, message: int|Message, group: Channel|Chat|None, delay: int|float = 0) -> List[User]:
         def check_replies():

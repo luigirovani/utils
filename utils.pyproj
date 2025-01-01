@@ -4,8 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>190f5c84-ae36-45f6-b873-e418c166155e</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>
-    </StartupFile>
+    <StartupFile>singleton.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -24,6 +23,15 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="database\sqlachamy\base.py" />
+    <Compile Include="database\sqlachamy\mariadb.py" />
+    <Compile Include="database\sqlachamy\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="database\sqlite\base.py" />
+    <Compile Include="database\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="files\io.py" />
     <Compile Include="files\paths.py" />
     <Compile Include="files\photos.py" />
@@ -40,17 +48,29 @@
     <Compile Include="loggers\filters.py" />
     <Compile Include="loggers\handles.py" />
     <Compile Include="loggers\loggers.py" />
+    <Compile Include="main.py" />
     <Compile Include="miscellaneous\decorators.py" />
     <Compile Include="miscellaneous\encoding.py" />
     <Compile Include="miscellaneous\filters.py" />
     <Compile Include="miscellaneous\async_utils.py" />
     <Compile Include="miscellaneous\os_utils.py" />
-    <Compile Include="miscellaneous\parses.py" />
+    <Compile Include="oop\classes.py" />
+    <Compile Include="oop\decorators.py" />
+    <Compile Include="oop\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="regex_utils\date.py" />
+    <Compile Include="regex_utils\links.py" />
+    <Compile Include="regex_utils\parses.py" />
     <Compile Include="miscellaneous\stream.py" />
     <Compile Include="miscellaneous\utils.py" />
     <Compile Include="miscellaneous\windows.py" />
     <Compile Include="miscellaneous\__init__.py" />
+    <Compile Include="regex_utils\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="setup.py" />
+    <Compile Include="singleton.py" />
     <Compile Include="telegram\client.py" />
     <Compile Include="telegram\exceptions.py" />
     <Compile Include="telegram\sessions.py" />
@@ -61,13 +81,21 @@
     <Compile Include="__init__.py" />
   </ItemGroup>
   <ItemGroup>
+    <Folder Include="database\" />
+    <Folder Include="database\sqlachamy\" />
+    <Folder Include="database\sqlite\" />
     <Folder Include="files\" />
     <Folder Include="loggers\consts\" />
     <Folder Include="miscellaneous\" />
     <Folder Include="loggers\" />
+    <Folder Include="oop\" />
+    <Folder Include="regex_utils\" />
     <Folder Include="telegram\" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include=".gitattributes" />
+    <Content Include=".gitignore" />
+    <Content Include="LICENSE.txt" />
     <Content Include="README.rst" />
     <Content Include="requirements.txt" />
   </ItemGroup>

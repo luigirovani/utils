@@ -78,7 +78,7 @@ class Runner:
         max_tasks: Optional[int] = None, 
         loop: Optional[asyncio.AbstractEventLoop] = None, 
         timout: Optional[float] = None, 
-        return_exceptions: bool = False, 
+        return_exceptions: bool = True, 
         delay: Optional[Union[float, int]] = None
     ) -> None:
         self.name: str = name
@@ -86,7 +86,6 @@ class Runner:
         self._results: List[Any] = []
         self.logger: Optional[logging.Logger] = logger
         self._sem: Optional[asyncio.Semaphore] = None
-        self._cancel_running = False
         self.max_tasks = max_tasks
         self.loop: asyncio.AbstractEventLoop = loop
         self.future: asyncio.Future = self.loop.create_future()
@@ -104,7 +103,7 @@ class Runner:
     def logger(self, logger):
         if not logger:
             self._logger = logging.getLogger(self.name)
-            self._logger.setLevel(logging.DEBUG)
+            self._logger.setLevel(logging.INFO)
         else:
             self._logger = logger.getChild(self.name)
 
@@ -118,7 +117,7 @@ class Runner:
         if self.loop and self._tasks:
             raise RuntimeError('Cannot change loop while tasks are running')
 
-        self._loop = loop or get_loop()
+        self._loop = loop if loop else get_loop()
 
     @property
     def max_tasks(self):
@@ -141,7 +140,7 @@ class Runner:
         if self._future and not self._future.done():
             self._future.cancel()
 
-        self._future = future or self.loop.create_future()
+        self._future = future if future else self.loop.create_future()
         self._future.add_done_callback(self.on_future_done)
 
     @property
@@ -154,14 +153,13 @@ class Runner:
 
     @results.setter
     def results(self, result: asyncio.Future):
+        self._tasks.remove(result)
         try:
             self._results.append(result.result())
-        except FatalException as e:
+        except FatalException:
             pass
         except Exception as e:
-            self._results.append(e)
-
-        self._tasks.remove(result)
+            self._results.append(result.exception())
 
     def push(self, coro):
         async def run_coro():
@@ -179,13 +177,13 @@ class Runner:
                 return await _run_coro()
 
         task = self.loop.create_task(run_coro())
-        task.add_done_callback(self.on_task_done)
         self._tasks.append(task)
+        task.add_done_callback(self.on_task_done)
         return task
 
     def on_task_done(self, finished_task: asyncio.Future):
         for task in list(self._tasks):
-            if task is finished_task:
+            if task == finished_task:
                 self.results = task
 
     def on_future_done(self, future: asyncio.Future):
@@ -208,27 +206,22 @@ class Runner:
         return self.run().__await__()
 
     async def run(self):
-        self._cancel_running = False
-        tasks = self._tasks
-
         try:
-            await asyncio.gather(*tasks, return_exceptions=self.return_exceptions)
-            self.finish("All tasks finish")
+            await asyncio.gather(*self._tasks, return_exceptions=self.return_exceptions)
         except (asyncio.CancelledError, KeyboardInterrupt):
-            self.finish(None)
+            pass
         except Exception as e:
-            self.finish(e=e)
+            self.logger.error(f'Error in run_app: {e}', exc_info=True)
 
         await self.future
         return self.results
 
     def finish(self, result = None, e = None):
-        if not self.future.done() and not self._cancel_running:
+        if not self.future.done():
             if e:
-                self.loop.call_later(0.1, self.future.set_exception, e)
+                self.loop.call_soon(self.future.set_exception, e)
             else:
-                self.loop.call_later(0.1, self.future.set_result, result)
-            self._cancel_running = True
+                self.loop.call_soon(self.future.set_result, result)
 
 
 

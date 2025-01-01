@@ -8,7 +8,7 @@ import string
 from pathlib import Path
 from logging import getLogger, Logger
 from functools import partialmethod
-from typing import Any, Callable, List, Tuple, Dict, Awaitable
+from typing import Any, Callable, Iterable, List, Tuple, Dict, Awaitable
 from datetime import datetime
 
 from telethon import TelegramClient, utils, errors, events, types as telethon_types
@@ -27,6 +27,7 @@ from telethon.tl.types import (
 from telethon.errors import FloodWaitError, PeerFloodError, AuthKeyDuplicatedError, PhoneNumberBannedError as PhoneNumberBanned
 
 from ..miscellaneous import sleep, convert_iter
+from ..miscellaneous import Runner
 from ..miscellaneous.encoding import normalize_to_ascii as unidecode
 from ..loggers.colourprinter import colourprinter as colour
 from ..loggers.loggers import getChilder
@@ -52,6 +53,7 @@ class Client(TelegramClient):
         receive_updates: bool = False,
         limit_spam_flood: int = 5,
         parse_session : bool = True,
+        cancelled_event: Runner = None,
         **kwargs: Any
     ):
         session_path = clean_session(session) if parse_session else Path(session)
@@ -60,6 +62,7 @@ class Client(TelegramClient):
         self.delay = delay
         self.flood_count = 0
         self.limit_spam_flood = limit_spam_flood
+        self.cancelled_event = cancelled_event
         self.logger = getChilder(self.phone, base_logger)
 
         try:
@@ -132,7 +135,7 @@ class Client(TelegramClient):
             try:
                 self.session.close()
             except Exception as e:
-                self.logger.debug(f'Error in close session: {e}')
+                pass
 
     async def disconnect(self, ensure_close=False):
         return asyncio.shield(self.loop.create_task(self.disconnect_close(ensure_close)))
@@ -149,6 +152,9 @@ class Client(TelegramClient):
             raise e
         except Exception as e:
             self.logger.error(f'Error in run {c_name}: {e}')
+
+    def kill_app(self, result: str = None, e: Exception = None):
+        self.cancelled_event.finish(result, e)
 
     async def handle_exception(self, e: Exception) -> bool:
 
@@ -218,8 +224,6 @@ class Client(TelegramClient):
         name_channel = self.get_display(channel, 'MAGENTA')
 
         try:
-            user = await self.resolve_user_entity(user)
-
             if isinstance(channel, Chat):
                 await self(messages.AddChatUserRequest(self.get_id(channel, add_mask=False), user, fwd_limit))
             else:
@@ -302,12 +306,13 @@ class Client(TelegramClient):
         except:
             pass
 
-    async def resolve_user_entity(self, entity: User, msg: str = 'oi') -> User|InputPeerUser:
+    async def resolve_user_entity(self, entity: User, msg: str|None = 'oi') -> User|InputPeerUser:
         if result := await self._resolve_user_entity(entity):
             return result
 
         try:
-            await self.send_message(entity, msg)
+            if msg:
+                await self.send_message(entity, msg)
         except:
             pass
 
@@ -461,7 +466,7 @@ class Client(TelegramClient):
     async def get_response_msg(
         self, 
         chat_id: int|Message|TypeUpdate|Entity,
-        func: Callable[[Message], bool]|Awaitable[Message, bool]|None = None, 
+        func: Callable[[Message], bool]|None = None, 
         regex: str|None = None,
         timeout: int = 300
     ) -> Message|None:
@@ -478,10 +483,10 @@ class Client(TelegramClient):
         except asyncio.TimeoutError:
             return None
         finally:
-            self.remove_event_handler(callback)
+            self.remove_event_handler(callback, event)
 
     async def ask_msg(self, chat_id: int|Message|TypeUpdate|Entity, question: str, timeout: int = 300, **kwargs) -> Message|None:
-        message = await self.send_message(chat_id, question, **kwargs)
+        message: Message = await self.send_message(chat_id, question, **kwargs)
         return await self.get_response_msg(chat_id, timeout=timeout)
 
     async def get_code(self, api = False, timeout = 300, bot_id = 777000) -> str:
@@ -489,53 +494,53 @@ class Client(TelegramClient):
         if message := await self.get_response_msg(bot_id, regex=pattern, timeout=timeout):
             return re.search(message.text).group(0)
 
-    async def fetch_users_from_reply(self, channel: Channel, message: int|Message) -> List[User]:
-        def check_replies(message):
-            return all ([
-                channel.broadcast,
-                hasattr(message, 'replies'),
-                message.replies,
-                message.replies.replies > 0
-            ])
+    async def fetch_users_from_reply(self, channel: Channel|int|str, message: Message) -> List[User]:
+        offset = 0
+        users = []
+        while offset < message.replies.replies:
+            reply = await self(messages.GetRepliesRequest(
+                peer=channel,
+                msg_id=message.id,
+                offset_id=0,  
+                offset_date=None,
+                add_offset=offset,
+                limit=100,  
+                max_id=0,
+                min_id=0,
+                hash=0                            
+            ))
+            users += reply.users
+            offset += len(reply.messages)
+            print(offset, len(reply.messages))
+            await self.sleep()
+            if not reply.messages:
+                break
+
+        return self.filter_users(users)
+
+    async def fetch_users_from_message(self, message: int|Message, group: Channel|Chat|None, delay: int|float = 0) -> List[User]:
+        def check_replies():
+            return message.replies and message.replies.replies > 0
+
+        if isinstance(group, Channel) and group.broadcast:
+            if check_replies():
+                await self.sleep(delay)
+                return await self.fetch_users_from_reply(group, message)
+            return []
 
         if isinstance(message, Message):
-            if not check_replies(message):
-                return []
-            message_id = message.id
-        else:
-            message_id = message
-
-        reply = await self(messages.GetRepliesRequest(
-            peer=channel,
-            msg_id=message_id,
-            offset_id=0,  
-            offset_date=None,
-            add_offset=0,
-            limit=100,  
-            max_id=0,
-            min_id=0,
-            hash=0                            
-        ))
-        return reply.users
+            return self.filter_users(message.sender)
+        
+        return []
 
     async def fetch_users_from_messages(self, group: Channel|Chat, limit: int = 20, delay: int|float = None, **kwargs) -> List[User]:
-        users = {}
-
         if not isinstance(group, GroupEntity):
             group = await self.get_entity(group)
-        broadcast = isinstance(group, Channel) and group.broadcast
 
         async for message in self.iter_messages(group, limit=limit, **kwargs):
-            if broadcast:
-                for user in (await self.fetch_users_from_reply(group, message)):
-                    users[user.id] = user
-                await self.sleep(delay)
+            users += (await self.fetch_users_from_message(message, group, delay))
 
-            else:
-                if user := await message.get_sender():
-                    users[user.id] = user
-
-        return list(filter(lambda u: isinstance(u, User), users.values()))
+        return self.filter_users(users)
 
     async def fetch_all_participans(self, channel: Channel, delay: int|float = None) -> List[User]:
         pattern = re.compile(r"\b[a-zA-Z]")
@@ -562,7 +567,7 @@ class Client(TelegramClient):
                 offset += len(participants.users)
                 await self.sleep(delay)
 
-        return users
+        return self.filter_users(users)
 
     async def check_spambot(self) -> Tuple[bool, datetime|None]:
         spambot = 'SpamBot'
@@ -579,35 +584,35 @@ class Client(TelegramClient):
             msg = msg[0].text
 
             if any (text in msg for text in spamtext):
-                self.logger.debug(f'Client is not a spambot')
+                self.logger.debug(f'Client is good')
                 return False, None
 
-                     
             if matches := datepattern.findall(msg):
                 for match in matches:
                     date_limitation = datetime.strptime(match, '%d %b %Y, %H:%M %Z')
-                    self.logger.debug(f'Client is a spambot until {date_limitation}')
+                    self.logger.debug(f'Client is a spam until {date_limitation}')
                     return True, date_limitation
 
-            return False, None
+            return True, None
 
         except Exception as e:
             if 'blocked this user' in str(e).lower():
                 self.logger.debug(f'Client blocked spambot\n Try again ')
                 return False, None
             self.logger.error(f'Error in check_spambot: {e}')
+            return True, None
 
     async def leave_channels(self, limit: int = 5):
         count = 1
         self.logger.debug(f'Leaving channels...')
-        joined_groups = [int(group[0]) for group in self.get_joined_groups()]
 
         async for dialog in self.iter_dialogs():
             try:
                 if not dialog.is_channel:
                     continue
                 
-                if self.check_joined(dialog.entity, dialog.entity.username)[0]:
+                j, r = self.check_joined(dialog.entity, dialog.entity.username)[0]
+                if not j and not r:
                     continue
 
                 count+=1
@@ -765,7 +770,16 @@ class Client(TelegramClient):
             else:
                 display_name = ''
 
-        return colour(display_name, color)
+        return colour(display_name if display_name else '', color)
+
+    @staticmethod
+    def filter_users(users: Iterable[User], filter=None) -> List[User]:
+        filter = filter or (lambda user: True)
+        return list({
+            user.id: user
+            for user in convert_iter(users)
+            if user if isinstance(user, User) and not user.bot and filter(user)
+        }.values())
 
     @staticmethod
     def parse_phone(phone: str|int) -> str:
@@ -910,7 +924,7 @@ class Client(TelegramClient):
             query = """
                 INSERT INTO groups (link, joined)
                 VALUES (?, ?)
-                ON CONFLICT(link) DO UPDATE SET
+                ON CONFLICT (link) DO UPDATE SET
                     joined = excluded.joined
             """
             data = (link, 1)

@@ -1,7 +1,7 @@
 import re
 from typing import Union, Optional
 from pathlib import Path
-from..miscellaneous.parses import parse_nuns, parse_phone
+from..regex_utils.parses import parse_nuns, parse_phone
 
 USERNAME_RE = re.compile(
     r'@|(?:https?://)?(?:www\.)?(?:telegram\.(?:me|dog)|t\.me)/(@|\+|joinchat/)?'
