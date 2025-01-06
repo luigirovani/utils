@@ -138,7 +138,7 @@ class Client(TelegramClient):
                 pass
 
     async def disconnect(self, ensure_close=False):
-        return await asyncio.shield(self.loop.create_task(self.disconnect_close(ensure_close)))
+        return await self.disconnect_close(ensure_close)
 
     async def run_callback(self, callback: Callable[[TelegramClient], Any], timeout=None, **kwargs: Any):
         c_name = colour(callback.__name__, 'Y')
@@ -257,6 +257,8 @@ class Client(TelegramClient):
                 self.logger.debug(f'Success in add_contact')
                 return True
 
+        except FatalException as e:
+            raise e
         except Exception as e:
             self.logger.debug(f'Error in add_contact: {e}')
             if raise_exceptions:
@@ -276,6 +278,8 @@ class Client(TelegramClient):
                 limit=limit
             ))
             return results
+        except FatalException as e:
+            raise e
         except Exception as e:
             await self.logger.debug(f'Error in search_groups: {e}')
             return []
@@ -326,6 +330,8 @@ class Client(TelegramClient):
                 id=convert_iter(msg_id),
                 increment=increment
             ))
+        except FatalException as e:
+            raise e
         except Exception as e:
             if raise_exceptions:
                 raise e
@@ -359,6 +365,8 @@ class Client(TelegramClient):
                 ))
                 await sleep(delay)
 
+        except FatalException as e:
+            raise e
         except Exception as e:
             self.logger.error(f'Error in react_message: {e}')
 
@@ -594,6 +602,9 @@ class Client(TelegramClient):
 
             return True, None
 
+        except FatalException as e:
+            raise e
+
         except Exception as e:
             if 'blocked this user' in str(e).lower():
                 self.logger.debug(f'Client blocked spambot\n Try again ')
@@ -620,6 +631,8 @@ class Client(TelegramClient):
 
             except FloodWaitError:
                 break
+            except FatalException as e:
+                raise e
             except Exception as e:
                 self.logger.debug(f'Error in leave channel: {e}')
 
@@ -709,6 +722,9 @@ class Client(TelegramClient):
             self.logger.info(f'Success join in {self.get_display(entity, 'LC')}')
             self.add_joined_group(entity, link)
             return entity
+
+        except FatalException as e:
+            raise e
 
         except Exception as e:
             self.logger.error(f'Error in join_channel {e}')
