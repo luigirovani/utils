@@ -74,6 +74,7 @@ class Runner:
         self, 
         coros: List[asyncio.Future]|asyncio.Future = [], 
         name: Optional[str] = __name__, 
+        raise_fatal_exceptions: bool = True,
         logger: Optional[logging.Logger] = None, 
         max_tasks: Optional[int] = None, 
         loop: Optional[asyncio.AbstractEventLoop] = None, 
@@ -82,6 +83,7 @@ class Runner:
         delay: Optional[Union[float, int]] = None
     ) -> None:
         self.name: str = name
+        self.raise_fatal_exceptions: bool = raise_fatal_exceptions,
         self._tasks: List[asyncio.Future] = []
         self._results: List[Any] = []
         self.logger: Optional[logging.Logger] = logger
@@ -155,11 +157,14 @@ class Runner:
     @results.setter
     def results(self, result: asyncio.Future):
         try:
-            self._results.append(result.result())
+            if result.done():
+                result_task = result.result()
+                self._results.append(result_task)
         except FatalException as e:
-            pass
+            if self.raise_fatal_exceptions:
+                self._results.append(result.exception())
         except Exception as e:
-            self._results.append(e)
+            self._results.append(result.exception())
 
         self._tasks.remove(result)
 
@@ -184,9 +189,7 @@ class Runner:
         return task
 
     def on_task_done(self, finished_task: asyncio.Future):
-        for task in list(self._tasks):
-            if task is finished_task:
-                self.results = task
+        self.results = finished_task
 
     def on_future_done(self, future: asyncio.Future):
 
@@ -200,7 +203,8 @@ class Runner:
                     self.logger.info(f'Finished: {result}')
             except FatalException:
                 self.logger.warning(f'Cancelled')
-                pass
+                if self.raise_fatal_exceptions:
+                    raise future.exception()
             except Exception as e:
                 self.logger.critical(f'Error : {e}', exc_info=True)
 
@@ -214,12 +218,22 @@ class Runner:
         try:
             await asyncio.gather(*tasks, return_exceptions=self.return_exceptions)
             self.finish("All tasks finish")
-        except (asyncio.CancelledError, KeyboardInterrupt):
+        except FatalException:
             self.finish(None)
         except Exception as e:
             self.finish(e=e)
 
         await self.future
+        for task in list(self._tasks):
+            if not task.done():
+                await task
+            self._tasks.remove(task)
+
+        if self.raise_fatal_exceptions:
+            for r in self.results:
+                if isinstance(r, FatalException):
+                    raise r
+
         return self.results
 
     def finish(self, result = None, e = None):

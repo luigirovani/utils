@@ -1,1 +1,1 @@
-from parses import *
+from.parses import *

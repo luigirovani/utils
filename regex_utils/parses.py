@@ -14,8 +14,7 @@ except ImportError:
 
 VALID_PHONE = re.compile(r'[+()\s-]')
 EMAIL_PATTERN = re.compile(
-    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-    re.IGNORECASE
+    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 )
 VALID_USERNAME_RE = re.compile(
     r'^[a-z](?:(?!__)\w){1,30}[a-z\d]$',
@@ -79,8 +78,7 @@ def search_emails(text: str) -> List[str]:
     return EMAIL_PATTERN.findall(text)
 
 def search_usernames(text: str) -> List[str]:
-    usernames = [match[0] or match[1] for match in USERNAME_RE.findall(text)]
-    return [username for username in usernames if valid_username(username)]
+    return [match[0] or match[1] for match in USERNAME_RE.findall(text)]
 
 def get_date(data_str: str) -> datetime|None:
     if date := DATA_PATTERN.search(data_str):

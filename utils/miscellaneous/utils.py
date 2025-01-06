@@ -1,6 +1,7 @@
 from typing import Any
 from types import GeneratorType
 from collections.abc import AsyncIterable
+from datetime import datetime, timedelta
 
 __all_ = ['is_list_like', 'convert_iter', 'to_list', 'check_async_iterable']
 
@@ -18,6 +19,16 @@ def to_list(obj: Any) -> list:
 
 def check_async_iterable(obj) -> bool:
     return  isinstance(obj, AsyncIterable)
+
+def get_next_time(timezone=None, **target_time):
+    currentime = datetime.now(timezone)
+    target_time = currentime.replace(**target_time)
+    
+    if currentime.time() >= target_time.time():
+        target_time += timedelta(days=1)
+       
+    delta = target_time - currentime
+    return delta.total_seconds()
 
 
 

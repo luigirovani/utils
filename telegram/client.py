@@ -138,7 +138,7 @@ class Client(TelegramClient):
                 pass
 
     async def disconnect(self, ensure_close=False):
-        return asyncio.shield(self.loop.create_task(self.disconnect_close(ensure_close)))
+        return await asyncio.shield(self.loop.create_task(self.disconnect_close(ensure_close)))
 
     async def run_callback(self, callback: Callable[[TelegramClient], Any], timeout=None, **kwargs: Any):
         c_name = colour(callback.__name__, 'Y')

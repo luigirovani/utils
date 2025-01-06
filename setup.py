@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="utils",
-    version="1.0.1",
+    version="1.0.2",
     description="Func Utils for python",
     long_description=open("README.rst").read(),
     long_description_content_type="text/markdown",
@@ -12,5 +12,5 @@ setup(
     license="MIT",
     packages=find_packages(),
     install_requires=open("requirements.txt").readlines(),
-    python_requires=">=3.13"
+    python_requires=">=3.12"
 )

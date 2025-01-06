@@ -188,7 +188,7 @@ class Client(TelegramClient):
 
     async def fetch_admins(self, group: Channel|Chat, ids: bool = True) -> List[User|int]:
         users = []
-        if group(isinstance, Channel) and group.broadcast:
+        if isinstance(group, Channel) and group.broadcast:
             return users
 
         try:
@@ -511,7 +511,6 @@ class Client(TelegramClient):
             ))
             users += reply.users
             offset += len(reply.messages)
-            print(offset, len(reply.messages))
             await self.sleep()
             if not reply.messages:
                 break

@@ -1,4 +1,6 @@
 
+
+from miscellaneous.async_utils import FatalException
 class ClientError(Exception):
     def __init__(self, msg=None, phone=None, tip=None):
         self.msg = msg if msg is not None else self.default_msg

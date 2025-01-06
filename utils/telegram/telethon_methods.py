@@ -65,7 +65,8 @@ def get_api(
         List[Tuple(int, str)]: The API ID and API hash.
     """
     if isinstance(api, Path) or isinstance(api, str):
-        return read_csv(api, drop=True, skip_header=True)
+        apis = read_csv(api, drop=True, skip_header=True)
+        return [(peer[0], peer[1]) for peer in apis]
 
     if is_list_like(api):
         if is_list_like(api[0]):
@@ -126,7 +127,7 @@ async def run_app(
             receive_updates=receive_updates, **keyargs
         ))
 
-    await runner
+    await runner.run()
 
 
 

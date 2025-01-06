@@ -4,7 +4,8 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>190f5c84-ae36-45f6-b873-e418c166155e</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>singleton.py</StartupFile>
+    <StartupFile>
+    </StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -48,7 +49,6 @@
     <Compile Include="loggers\filters.py" />
     <Compile Include="loggers\handles.py" />
     <Compile Include="loggers\loggers.py" />
-    <Compile Include="main.py" />
     <Compile Include="miscellaneous\decorators.py" />
     <Compile Include="miscellaneous\encoding.py" />
     <Compile Include="miscellaneous\filters.py" />
@@ -70,7 +70,6 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="setup.py" />
-    <Compile Include="singleton.py" />
     <Compile Include="telegram\client.py" />
     <Compile Include="telegram\exceptions.py" />
     <Compile Include="telegram\sessions.py" />
